@@ -1,5 +1,8 @@
 name: Build and Release
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ main ]
@@ -19,6 +22,7 @@ jobs:
       with:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
+        persist-credentials: true
     
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -59,15 +63,6 @@ jobs:
         echo "VERSION=$CURRENT" >> $GITHUB_OUTPUT
         echo "Building without version bump (event=$GITHUB_EVENT_NAME, ref=$GITHUB_REF): $CURRENT"
     
-    - name: Commit version bump
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add gradle.properties
-        git commit -m "Auto-increment version to ${{ steps.version.outputs.VERSION }} [skip ci]" || echo "No changes to commit"
-        git push || echo "No changes to push"
-    
     - name: Verify version
       run: |
         echo "Building version: ${{ steps.version.outputs.VERSION }}"
@@ -81,6 +76,15 @@ jobs:
     
     - name: List build artifacts
       run: ls -la build/libs/
+
+    - name: Commit version bump
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add gradle.properties
+        git commit -m "Auto-increment version to ${{ steps.version.outputs.VERSION }} [skip ci]" || echo "No changes to commit"
+        git push origin HEAD:main || echo "No changes to push"
     
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
