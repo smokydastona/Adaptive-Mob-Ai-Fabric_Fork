@@ -55,7 +55,11 @@ public class VillagerChatHandler {
                 // The event is a Fabric Event<T>. At runtime, register is erased to register(Object).
                 // We still need the listener to implement the correct functional interface; otherwise
                 // java.lang.reflect.Proxy will throw "Object is not an interface".
-                java.lang.reflect.Method registerMethod = allowEvent.getClass().getMethod("register", Object.class);
+                // IMPORTANT: the runtime event implementation class may be package-private.
+                // Reflecting on it directly can throw IllegalAccessException even if the method is public.
+                // Invoke via the public Event interface instead.
+                Class<?> fabricEventInterface = Class.forName("net.fabricmc.fabric.api.event.Event");
+                java.lang.reflect.Method registerMethod = fabricEventInterface.getMethod("register", Object.class);
 
                 if (allowListenerType == null || !allowListenerType.isInterface()) {
                     LOGGER.warn("MCA AI Enhanced - Fabric chat hooks not available (ALLOW_CHAT_MESSAGE listener type missing)");
