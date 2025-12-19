@@ -335,9 +335,9 @@ public class CloudflareAPIClient {
             Map<String, Object> tactics = new Object2ObjectOpenHashMap<>();
             for (Map.Entry<String, JsonElement> mobEntry : tacticsJson.entrySet()) {
                 try {
-                    Map<String, Object> mobTactics = gson.fromJson(mobEntry.getValue(), Map.class);
-                    if (mobTactics != null && !mobTactics.isEmpty()) {
-                        tactics.put(mobEntry.getKey(), mobTactics);
+                    Map<String, Object> rawMobData = gson.fromJson(mobEntry.getValue(), Map.class);
+                    if (rawMobData != null && !rawMobData.isEmpty()) {
+                        tactics.put(mobEntry.getKey(), normalizeDownloadedMobData(mobEntry.getKey(), rawMobData));
                     }
                 } catch (Exception e) {
                     LOGGER.debug("Failed to parse tactics for {}: {}", mobEntry.getKey(), e.getMessage());
@@ -366,6 +366,58 @@ public class CloudflareAPIClient {
             LOGGER.warn("Failed to download tactics from API: {}", e.getMessage());
             return new Object2ObjectOpenHashMap<>();
         }
+    }
+
+    /**
+     * Normalizes backend payload differences so downstream code always sees:
+     * mobData = { tactics: <List|Map>, aggregationMethod?: string, ... }
+     *
+     * This keeps upload formatting unchanged while being tolerant on download.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> normalizeDownloadedMobData(String mobType, Map<String, Object> rawMobData) {
+        // If already in the expected schema, keep it.
+        if (rawMobData.containsKey("tactics")) {
+            return rawMobData;
+        }
+
+        // Some backends may use 'actions' instead of 'tactics'.
+        Object actionsObj = rawMobData.get("actions");
+        if (actionsObj instanceof Map || actionsObj instanceof java.util.List) {
+            Map<String, Object> normalized = new HashMap<>();
+            normalized.put("tactics", actionsObj);
+            normalized.put("aggregationMethod", rawMobData.getOrDefault("aggregationMethod", "FedAvgM"));
+            if (rawMobData.containsKey("submissions")) {
+                normalized.put("submissions", rawMobData.get("submissions"));
+            }
+            if (rawMobData.containsKey("serverId")) {
+                normalized.put("serverId", rawMobData.get("serverId"));
+            }
+            return normalized;
+        }
+
+        // If the mob object itself looks like a tactics map (action -> {avgReward,count,...}), wrap it.
+        boolean looksLikeTacticsMap = false;
+        for (Object value : rawMobData.values()) {
+            if (value instanceof Map) {
+                Map<String, Object> asMap = (Map<String, Object>) value;
+                if (asMap.containsKey("avgReward") || asMap.containsKey("count") || asMap.containsKey("successRate")) {
+                    looksLikeTacticsMap = true;
+                    break;
+                }
+            }
+        }
+
+        if (looksLikeTacticsMap) {
+            Map<String, Object> normalized = new HashMap<>();
+            normalized.put("tactics", rawMobData);
+            normalized.put("aggregationMethod", "FedAvgM");
+            return normalized;
+        }
+
+        // Unknown schema: return as-is (validator will reject, but we avoid crashing).
+        LOGGER.debug("Unknown mob tactics schema for {} (keys={})", mobType, rawMobData.keySet());
+        return rawMobData;
     }
     
     /**
