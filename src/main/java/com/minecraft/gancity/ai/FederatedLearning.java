@@ -616,9 +616,40 @@ public class FederatedLearning {
             for (Map.Entry<String, Object> entry : allTactics.entrySet()) {
                 String mobType = entry.getKey();
                 Map<String, Object> mobData = (Map<String, Object>) entry.getValue();
-                List<Map<String, Object>> allMobTactics = (List<Map<String, Object>>) mobData.get("tactics");
-                
-                if (allMobTactics == null || allMobTactics.isEmpty()) continue;
+
+                Object tacticsObj = mobData != null ? mobData.get("tactics") : null;
+                List<Map<String, Object>> allMobTactics = new ArrayList<>();
+
+                if (tacticsObj instanceof List<?> list) {
+                    for (Object item : list) {
+                        if (item instanceof Map) {
+                            allMobTactics.add((Map<String, Object>) item);
+                        }
+                    }
+                } else if (tacticsObj instanceof Map<?, ?> map) {
+                    // Some payloads are action -> stats maps; convert to the list-of-maps shape expected below.
+                    for (Map.Entry<?, ?> tacticEntry : map.entrySet()) {
+                        String action = String.valueOf(tacticEntry.getKey());
+                        Map<String, Object> tacticData = new HashMap<>();
+                        tacticData.put("action", action);
+
+                        Object statsObj = tacticEntry.getValue();
+                        if (statsObj instanceof Map<?, ?> statsMap) {
+                            for (Map.Entry<?, ?> stat : statsMap.entrySet()) {
+                                if (stat.getKey() != null) {
+                                    tacticData.put(String.valueOf(stat.getKey()), stat.getValue());
+                                }
+                            }
+                        } else if (statsObj instanceof Number n) {
+                            // Simple action -> weight/reward map
+                            tacticData.put("avgReward", n);
+                        }
+
+                        allMobTactics.add(tacticData);
+                    }
+                }
+
+                if (allMobTactics.isEmpty()) continue;
                 
                 // Get currently active tactics for this mob
                 Map<String, GlobalTactic> activeTactics = globalTacticPool.getOrDefault(
@@ -628,6 +659,9 @@ public class FederatedLearning {
                 List<Map<String, Object>> prunedTactics = new ArrayList<>();
                 for (Map<String, Object> tacticData : allMobTactics) {
                     String action = (String) tacticData.get("action");
+                    if (action == null || action.isBlank()) {
+                        continue;
+                    }
                     if (!activeTactics.containsKey(action)) {
                         prunedTactics.add(tacticData);
                     }

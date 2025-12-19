@@ -9,6 +9,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Entity.class)
 public abstract class EntityPersistentDataMixin implements PersistentDataHolder {
@@ -27,12 +28,17 @@ public abstract class EntityPersistentDataMixin implements PersistentDataHolder 
         return this.adaptivemobai$persistentData;
     }
 
-    @Inject(method = "addAdditionalSaveData", at = @At("HEAD"))
-    private void adaptivemobai$writePersistentData(CompoundTag nbt, CallbackInfo ci) {
-        nbt.put(ADAPTIVEMOBAI_PERSISTENT_NBT_KEY, this.adaptivemobai$getPersistentData().copy());
+    @Inject(method = "saveWithoutId", at = @At("RETURN"), require = 0)
+    private void adaptivemobai$writePersistentData(CompoundTag nbt, CallbackInfoReturnable<CompoundTag> cir) {
+        CompoundTag out = cir.getReturnValue();
+        if (out != null) {
+            out.put(ADAPTIVEMOBAI_PERSISTENT_NBT_KEY, this.adaptivemobai$getPersistentData().copy());
+        } else {
+            nbt.put(ADAPTIVEMOBAI_PERSISTENT_NBT_KEY, this.adaptivemobai$getPersistentData().copy());
+        }
     }
 
-    @Inject(method = "readAdditionalSaveData", at = @At("HEAD"))
+    @Inject(method = "load", at = @At("HEAD"), require = 0)
     private void adaptivemobai$readPersistentData(CompoundTag nbt, CallbackInfo ci) {
         if (nbt.contains(ADAPTIVEMOBAI_PERSISTENT_NBT_KEY, Tag.TAG_COMPOUND)) {
             this.adaptivemobai$persistentData = nbt.getCompound(ADAPTIVEMOBAI_PERSISTENT_NBT_KEY).copy();
