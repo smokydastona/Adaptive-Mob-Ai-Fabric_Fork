@@ -39,18 +39,43 @@ public class VillagerChatHandler {
         try {
             Class<?> serverMessageEvents = Class.forName("net.fabricmc.fabric.api.message.v1.ServerMessageEvents");
 
+            // Listener type is a nested interface in modern Fabric API versions.
+            // We reflect it so this class can still load even if the event API changes.
+            Class<?> allowListenerType;
+            try {
+                allowListenerType = Class.forName("net.fabricmc.fabric.api.message.v1.ServerMessageEvents$AllowChatMessage");
+            } catch (ClassNotFoundException e) {
+                allowListenerType = null;
+            }
+
             // Prefer ALLOW_CHAT_MESSAGE if present (lets us cancel broadcast).
             try {
                 Object allowEvent = serverMessageEvents.getField("ALLOW_CHAT_MESSAGE").get(null);
 
-                // The event is a Fabric Event<T>. We register a lambda via dynamic proxy.
-                // Handler returns boolean: true = allow, false = cancel.
+                // The event is a Fabric Event<T>. At runtime, register is erased to register(Object).
+                // We still need the listener to implement the correct functional interface; otherwise
+                // java.lang.reflect.Proxy will throw "Object is not an interface".
                 java.lang.reflect.Method registerMethod = allowEvent.getClass().getMethod("register", Object.class);
+
+                if (allowListenerType == null || !allowListenerType.isInterface()) {
+                    LOGGER.warn("MCA AI Enhanced - Fabric chat hooks not available (ALLOW_CHAT_MESSAGE listener type missing)");
+                    return;
+                }
 
                 Object listener = java.lang.reflect.Proxy.newProxyInstance(
                         VillagerChatHandler.class.getClassLoader(),
-                        new Class<?>[]{registerMethod.getParameterTypes()[0]},
+                        new Class<?>[]{allowListenerType},
                         (proxy, method, args) -> {
+                            // Handle Object methods (toString/hashCode/equals)
+                            if (method.getDeclaringClass() == Object.class) {
+                                return switch (method.getName()) {
+                                    case "toString" -> "VillagerChatHandler-AllowChatMessageProxy";
+                                    case "hashCode" -> System.identityHashCode(proxy);
+                                    case "equals" -> proxy == (args != null && args.length > 0 ? args[0] : null);
+                                    default -> null;
+                                };
+                            }
+
                             // Expected args vary by version. We only care about sender (ServerPlayer) and message string.
                             ServerPlayer player = null;
                             String message = null;

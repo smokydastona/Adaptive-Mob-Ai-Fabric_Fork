@@ -381,6 +381,23 @@ public class CloudflareAPIClient {
             return rawMobData;
         }
 
+        // Some backends wrap the tactics object under a generic key.
+        for (String wrapperKey : new String[]{"data", "payload", "model", "value"}) {
+            Object wrapped = rawMobData.get(wrapperKey);
+            if (wrapped instanceof Map || wrapped instanceof java.util.List) {
+                Map<String, Object> normalized = new HashMap<>();
+                normalized.put("tactics", wrapped);
+                normalized.put("aggregationMethod", rawMobData.getOrDefault("aggregationMethod", "FedAvgM"));
+                if (rawMobData.containsKey("submissions")) {
+                    normalized.put("submissions", rawMobData.get("submissions"));
+                }
+                if (rawMobData.containsKey("serverId")) {
+                    normalized.put("serverId", rawMobData.get("serverId"));
+                }
+                return normalized;
+            }
+        }
+
         // Some backends may use 'actions' instead of 'tactics'.
         Object actionsObj = rawMobData.get("actions");
         if (actionsObj instanceof Map || actionsObj instanceof java.util.List) {
@@ -405,6 +422,9 @@ public class CloudflareAPIClient {
                     looksLikeTacticsMap = true;
                     break;
                 }
+            } else if (value instanceof Number || value instanceof Boolean || value instanceof String) {
+                // Some payloads may be a simple action -> weight/probability map.
+                looksLikeTacticsMap = true;
             }
         }
 
