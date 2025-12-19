@@ -6,13 +6,13 @@ Mobs learn tactics and adapt in real-time using Double DQN reinforcement learnin
 [![Minecraft Version](https://img.shields.io/badge/Minecraft-1.20.1-brightgreen.svg)](https://minecraft.net)
 [![Fabric](https://img.shields.io/badge/Fabric-Loader%20%2B%20API-orange.svg)](https://fabricmc.net)
 [![Java Version](https://img.shields.io/badge/Java-17-blue.svg)](https://openjdk.org)
-[![Latest Release](https://img.shields.io/github/v/release/smokydastona/Adaptive-Minecraft-Mob-Ai)](https://github.com/smokydastona/Adaptive-Minecraft-Mob-Ai/releases)
+[![Latest Release](https://img.shields.io/github/v/release/smokydastona/Adaptive-Mob-Ai-Fabric_Fork)](https://github.com/smokydastona/Adaptive-Mob-Ai-Fabric_Fork/releases)
 
 ---
 
 ## 🚀 Quick Start
 
-1. **Download**: Get `Adaptive-Mob-Ai-Fabric-<version>.jar` from [releases](https://github.com/smokydastona/Adaptive-Minecraft-Mob-Ai/releases)
+1. **Download**: Get `Adaptive-Mob-Ai-Fabric-<version>.jar` from [releases](https://github.com/smokydastona/Adaptive-Mob-Ai-Fabric_Fork/releases) (or the latest GitHub Actions build artifact)
 2. **Install**: Drop in your server's `mods/` folder (server-side only, no client required)
 3. **Play**: ML starts learning immediately, federation syncs automatically
 
@@ -39,7 +39,7 @@ That's it. Mobs adapt to player tactics and optionally share knowledge globally.
 ### 🎯 Advanced Tactics
 - **10 combat actions**: Circle strafe, tactical retreat, aggressive rush, ambush, etc.  
 - **Environmental awareness**: Biome temperature, light level, nearby entities  
-- **Equipment detection**: Adapts to player armor/weapons via Curios API  
+- **Equipment detection**: Adapts to player armor/weapons  
 - **Curriculum learning**: Progressive difficulty increase as mobs improve
 
 ### 🔧 Server Admin Tools
@@ -55,7 +55,6 @@ That's it. Mobs adapt to player tactics and optionally share knowledge globally.
 - ✅ **Ice and Fire**: Skips dragons (have custom AI)  
 - ✅ **MCA Reborn**: Optional dialogue system (soft dependency)  
 - ✅ **PMMO**: Reduces stat modifiers to avoid conflicts  
-- ✅ **Curios API**: Equipment-aware tactics  
 - ✅ **FTB Teams**: Team-based coordination
 
 ---
@@ -147,8 +146,8 @@ See [docs/PERFORMANCE_AND_SAFEGUARDS.md](docs/PERFORMANCE_AND_SAFEGUARDS.md) for
 
 ### Building from Source
 ```bash
-git clone https://github.com/smokydastona/Adaptive-Minecraft-Mob-Ai.git
-cd Adaptive-Minecraft-Mob-Ai
+git clone https://github.com/smokydastona/Adaptive-Mob-Ai-Fabric_Fork.git
+cd Adaptive-Mob-Ai-Fabric_Fork
 .\gradlew build
 # Output: build/libs/Adaptive-Mob-Ai-Fabric-X.X.X.jar
 ```
@@ -174,11 +173,10 @@ See [.github/copilot-instructions.md](.github/copilot-instructions.md) for archi
 
 ## ⚠️ Known Issues
 
-- **v1.1.79 and earlier**: Classloading deadlock at startup (✅ fixed in v1.1.80)  
-- **Pre-1.1.148**: Some launchers/modpacks could exit during early Mixin init (“silent crash”). Update to v1.1.148+.
-- **Pre-1.1.174**: Some modpacks could log mixin refmap/injection issues that prevented AI goal injection. Update to v1.1.174+.
+- No known crashing issues in the current Fabric 1.0.x line.
+- Latest validation (Dec 18, 2025): full `latest.log` scan shows 0 `ERROR`/`FATAL`/`Exception`/`Stacktrace` matches; remaining `WARN`s are non-mod noise.
 
-See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for solutions.
+See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for help if you hit issues.
 
 ---
 
@@ -199,6 +197,13 @@ MIT License - See [LICENSE](LICENSE)
 
 ## 🔗 Links
 
-- [GitHub Issues](https://github.com/smokydastona/Adaptive-Minecraft-Mob-Ai/issues)  
-- [Releases](https://github.com/smokydastona/Adaptive-Minecraft-Mob-Ai/releases)  
+- [GitHub Issues](https://github.com/smokydastona/Adaptive-Mob-Ai-Fabric_Fork/issues)  
+- [Releases](https://github.com/smokydastona/Adaptive-Mob-Ai-Fabric_Fork/releases)  
 - [MCA Reborn](https://www.curseforge.com/minecraft/mc-mods/minecraft-comes-alive-reborn)
+
+---
+
+## 🔖 Versioning
+
+- `gradle.properties:mod_version` is the source of truth.
+- Pushes to `main` auto-increment the patch version (e.g. `1.0.4` → `1.0.5`) via GitHub Actions.
