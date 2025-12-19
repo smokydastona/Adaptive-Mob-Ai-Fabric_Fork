@@ -17,7 +17,7 @@ Then freezes with no crash report.
 - If you're on v1.1.79 or earlier, update to v1.1.80+
 
 **Manual workaround** (if stuck on old version):
-1. Remove `Adaptive-Mob-Ai-*.jar` from mods folder
+1. Remove any old `Adaptive-Mob-Ai-*.jar` (Forge/legacy) and `Adaptive-Mob-Ai-Fabric-*.jar` from mods folder
 2. Download v1.1.80+ from releases
 3. Place in mods folder and restart
 
@@ -37,10 +37,10 @@ java.lang.NoClassDefFoundError: ai/djl/ndarray/NDArray
 - Mod is self-contained, no external libraries needed
 
 **If still occurring**:
-1. Check you're using `-all.jar` version, not plain `.jar`
-   - ✅ `Adaptive-Mob-Ai-1.1.80-all.jar`
-   - ❌ `Adaptive-Mob-Ai-1.1.80.jar`
-2. Delete plain `.jar` if both exist in mods folder
+1. Ensure you only have ONE copy of the mod jar installed (and that you're using the Fabric build).
+  - ✅ `Adaptive-Mob-Ai-Fabric-<version>.jar`
+  - ❌ Having both a Forge/legacy jar and the Fabric jar at the same time
+2. Remove duplicates and restart
 
 ---
 
