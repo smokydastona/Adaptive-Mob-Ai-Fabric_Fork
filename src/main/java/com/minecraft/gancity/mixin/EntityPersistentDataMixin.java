@@ -27,12 +27,12 @@ public abstract class EntityPersistentDataMixin implements PersistentDataHolder 
         return this.adaptivemobai$persistentData;
     }
 
-    @Inject(method = "addAdditionalSaveData", at = @At("TAIL"))
+    @Inject(method = "addAdditionalSaveData", at = @At("HEAD"))
     private void adaptivemobai$writePersistentData(CompoundTag nbt, CallbackInfo ci) {
         nbt.put(ADAPTIVEMOBAI_PERSISTENT_NBT_KEY, this.adaptivemobai$getPersistentData().copy());
     }
 
-    @Inject(method = "readAdditionalSaveData", at = @At("TAIL"))
+    @Inject(method = "readAdditionalSaveData", at = @At("HEAD"))
     private void adaptivemobai$readPersistentData(CompoundTag nbt, CallbackInfo ci) {
         if (nbt.contains(ADAPTIVEMOBAI_PERSISTENT_NBT_KEY, Tag.TAG_COMPOUND)) {
             this.adaptivemobai$persistentData = nbt.getCompound(ADAPTIVEMOBAI_PERSISTENT_NBT_KEY).copy();
