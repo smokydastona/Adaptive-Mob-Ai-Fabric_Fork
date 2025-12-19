@@ -1,4 +1,4 @@
-# Adaptive Mob AI
+# Adaptive Mob AI- Fabric Port
 
 **Real machine learning for Minecraft mob behavior.**  
 Mobs learn tactics and adapt in real-time using Double DQN reinforcement learning. Optional federated learning shares knowledge across all servers globally.
@@ -70,7 +70,7 @@ That's it. Mobs adapt to player tactics and optionally share knowledge globally.
 - **4-6GB RAM recommended** (for ML training)
 
 ### Steps
-1. Download latest release `-all.jar` file  
+1. Download the latest release jar (`Adaptive-Mob-Ai-Fabric-<version>.jar`)  
 2. Place in server `mods/` folder  
 3. Start server (DJL/PyTorch libraries bundled)  
 4. Configure `config/adaptivemobai-common.toml` (optional)
