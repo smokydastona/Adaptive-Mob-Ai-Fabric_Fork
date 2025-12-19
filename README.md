@@ -64,8 +64,8 @@ That's it. Mobs adapt to player tactics and optionally share knowledge globally.
 
 ### Requirements
 - **Minecraft 1.20.1**  
-- **Fabric Loader** (for 1.20.1)  
-- **Fabric API** (for 1.20.1)  
+- **Fabric Loader 0.16.10+** (for 1.20.1)  
+- **Fabric API 0.92.6+1.20.1** (for 1.20.1)  
 - **Java 17**  
 - **4-6GB RAM recommended** (for ML training)
 

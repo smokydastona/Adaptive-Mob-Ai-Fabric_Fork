@@ -3,8 +3,8 @@
 ## Requirements
 
 - Minecraft 1.20.1
-- Fabric Loader (1.20.1)
-- Fabric API (1.20.1)
+- Fabric Loader 0.16.10+ (1.20.1)
+- Fabric API 0.92.6+1.20.1
 - Java 17
 
 ## Install
