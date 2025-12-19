@@ -1,0 +1,68 @@
+name: Sync cloudflare-worker from upstream
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-cloudflare-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    # Avoid infinite loop: the sync commit itself is pushed by github-actions[bot]
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout upstream repo
+        uses: actions/checkout@v4
+        with:
+          repository: smokydastona/Adaptive-Minecraft-Mob-Ai
+          ref: main
+          path: upstream
+          fetch-depth: 1
+
+      - name: Sync cloudflare-worker directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -d "upstream/cloudflare-worker" ]; then
+            echo "ERROR: upstream/cloudflare-worker does not exist"
+            exit 1
+          fi
+
+          mkdir -p cloudflare-worker
+
+          # Mirror upstream -> fork, deleting removed files.
+          # We intentionally copy the upstream .gitignore and configs to maintain compatibility.
+          rsync -a --delete \
+            --exclude 'node_modules/' \
+            upstream/cloudflare-worker/ cloudflare-worker/
+
+      - name: Commit and push if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- cloudflare-worker; then
+            echo "No changes in cloudflare-worker; nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A cloudflare-worker
+          git commit -m "chore: sync cloudflare-worker from upstream"
+          git push

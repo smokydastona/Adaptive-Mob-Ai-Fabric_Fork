@@ -1,0 +1,19 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "refmap": "adaptivemobai.refmap.json",
+  "package": "com.minecraft.gancity.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "EntityPersistentDataMixin",
+    "MobGoalSelectorAccessor",
+    "MobAIEnhancementMixin"
+  ],
+  "client": [
+  ],
+  "server": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

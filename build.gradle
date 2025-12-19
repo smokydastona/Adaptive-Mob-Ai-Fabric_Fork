@@ -1,0 +1,109 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'maven-publish'
+    id 'fabric-loom' version '1.6-SNAPSHOT'
+}
+
+version = project.mod_version
+group = 'com.minecraft.gancity'
+
+base {
+    archivesName = 'Adaptive-Mob-Ai'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+loom {
+    mixin {
+        defaultRefmapName = 'adaptivemobai.refmap.json'
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+repositories {
+    maven { url 'https://maven.fabricmc.net/' }
+    maven {
+        url 'https://repo.spongepowered.org/repository/maven-public/'
+    }
+    mavenCentral()
+    flatDir {
+        dirs 'libs'
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    // Generates adaptivemobai.refmap.json at compile time
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+
+    // MCA Reborn from libs folder (optional)
+    // Download from: https://www.curseforge.com/minecraft/mc-mods/minecraft-comes-alive-reborn/files
+    // Place the JAR in libs/ folder for dialogue features
+    fileTree(dir: 'libs', include: ['*.jar']).each { File file ->
+        modCompileOnly(files(file))
+    }
+
+    // FastUtil - High-performance collections
+    // Provided by Minecraft/runtime, don't bundle
+    compileOnly 'it.unimi.dsi:fastutil:8.5.12'
+
+    // Deep Java Library (DJL) for ML inference
+    // Lightweight API JARs bundled, native libraries download on first use
+    implementation 'ai.djl:api:0.25.0'
+    include 'ai.djl:api:0.25.0'
+    
+    implementation 'ai.djl.pytorch:pytorch-engine:0.25.0'
+    include 'ai.djl.pytorch:pytorch-engine:0.25.0'
+    
+    // DJL will auto-download PyTorch native libraries (~200MB) on first model load
+    // These are cached in user's home directory and reused across runs
+}
+
+// Configure the regular jar task with the new name
+tasks.named('jar', Jar).configure {
+    archiveBaseName = 'Adaptive-Mob-Ai'
+
+    manifest {
+        attributes([
+                'Specification-Title'     : 'Minecraft GAN City Generator',
+                'Specification-Vendor'    : 'GAN City Team',
+                'Specification-Version'   : '1',
+                'Implementation-Title'    : 'Adaptive-Mob-Ai',
+                'Implementation-Version'  : project.version,
+                'Implementation-Vendor'   : 'GAN City Team',
+                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+                'MixinConfigs'            : 'adaptivemobai.mixins.json'
+        ])
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifact jar
+        }
+    }
+    repositories {
+        maven {
+            url "file://${project.projectDir}/mcmodsrepo"
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

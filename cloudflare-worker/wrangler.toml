@@ -1,0 +1,55 @@
+name = "mca-ai-tactics-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Workers.dev subdomain
+workers_dev = true
+
+# Durable Object for Federation Coordinator
+[[durable_objects.bindings]]
+name = "FEDERATION_COORDINATOR"
+class_name = "FederationCoordinator"
+script_name = "mca-ai-tactics-api"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FederationCoordinator"]
+
+# KV Namespace for storing tactics data
+[[kv_namespaces]]
+binding = "TACTICS_KV"
+id = "a3cce63d8d8c4facac9653df37d67015"
+
+# Cloudflare Workers AI binding
+[ai]
+binding = "AI"
+
+# Scheduled job to sync to GitHub (optional - runs every hour)
+[triggers]
+crons = ["0 * * * *"]  # Every hour at :00
+
+# Environment variables
+[vars]
+GITHUB_REPO = "smokydastona/adaptive-ai-federation-logs"
+GITHUB_BRANCH = "main"
+GITHUB_ROUND_OVERWRITE = "true"  # When true, round logs may overwrite existing rounds/round-*.json files
+
+# Secrets (set with: wrangler secret put GITHUB_TOKEN)
+# GITHUB_TOKEN = "your-github-personal-access-token"
+# ADMIN_TOKEN = "random-long-secret"  # Protects /admin/reset-round (Authorization: Bearer <token>)
+# ANALYSIS_TOKEN = "random-long-secret"  # Optional: protects /api/analyze-tactics (Authorization: Bearer <token>)
+# 
+# To enable GitHub logging (observability only):
+# 1. Create GitHub Personal Access Token with 'repo' scope
+# 2. Ensure token has write access to: smokydastona/adaptive-ai-federation-logs
+# 3. Run: wrangler secret put GITHUB_TOKEN
+# 4. Paste your token when prompted
+# 
+# The worker will then log federation rounds to:
+# https://github.com/smokydastona/adaptive-ai-federation-logs
+#
+# CRITICAL: GitHub is OBSERVABILITY ONLY
+# - Logs are written AFTER aggregation completes
+# - Failures never block federation logic (wrapped in try/catch)
+# - GitHub is never read from (write-only flight recorder)
+# - Federation truth lives in Durable Object only

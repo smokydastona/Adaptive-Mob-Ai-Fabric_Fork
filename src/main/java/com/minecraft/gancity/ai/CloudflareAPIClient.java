@@ -1,0 +1,1102 @@
+package com.minecraft.gancity.ai;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonElement;
+import com.google.gson.reflect.TypeToken;
+import com.mojang.logging.LogUtils;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import org.slf4j.Logger;
+
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.concurrent.*;
+
+/**
+ * Cloudflare Worker API Client for Federated Learning
+ * 
+ * Replaces Git-based sync with HTTP API calls to Cloudflare Worker.
+ * Provides automatic, zero-configuration federated learning for all players.
+ * 
+ * Features:
+ * - POST /api/submit-tactics - Submit learned tactics
+ * - GET /api/download-tactics - Download global aggregated tactics
+ * - Automatic retry with exponential backoff
+ * - Async operations (non-blocking gameplay)
+ * - Graceful degradation if API unavailable
+ * - GZIP compression for network bandwidth reduction
+ * - Smart caching (5min TTL)
+ * - FastUtil collections for performance
+ */
+public class CloudflareAPIClient {
+    private static final Logger LOGGER = LogUtils.getLogger();
+    
+    // Configuration
+    private final String apiEndpoint;
+    private final int connectTimeoutMs = 5000;  // 5 seconds
+    private final int readTimeoutMs = 10000;    // 10 seconds
+    private final int maxRetries = 3;
+    
+    // Gson for JSON serialization
+    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    
+    // Thread pool for async operations
+    public final ExecutorService executor = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "CloudflareAPI-Worker");
+        t.setDaemon(true);
+        t.setUncaughtExceptionHandler((thread, throwable) -> {
+            LOGGER.error("Uncaught exception in CloudflareAPI thread: {}", throwable.getMessage());
+        });
+        return t;
+    });
+    
+    // Performance optimizations
+    private final TacticsCache cache = new TacticsCache(); // 5min TTL cache
+    private final DirtyFlagTracker dirtyTracker = new DirtyFlagTracker();
+    private final DownloadThrottler downloadThrottler = new DownloadThrottler(3, 60000); // 3 requests per minute
+    private final String serverId = generateServerId(); // Unique server identifier
+    
+    // Statistics
+    private long totalSubmissions = 0;
+    private long totalDownloads = 0;
+    private long failedSubmissions = 0;
+    private long failedDownloads = 0;
+    private long lastSuccessfulSync = 0;
+    private long compressionBytesSaved = 0;
+    private long cacheHits = 0;
+    private long cacheMisses = 0;
+    
+    public CloudflareAPIClient(String apiEndpoint) {
+        this.apiEndpoint = apiEndpoint.endsWith("/") ? apiEndpoint : apiEndpoint + "/";
+        LOGGER.info("CloudflareAPIClient initialized - Endpoint: {}", this.apiEndpoint);
+        LOGGER.info("Optimizations enabled: GZIP compression, smart caching, FastUtil collections");
+    }
+    
+    /**
+     * Submit a learned tactic to the global repository (async)
+     * 
+     * @param mobType Mob type (zombie, skeleton, creeper, spider)
+     * @param action Action taken
+     * @param reward Reward received
+     * @param outcome Combat outcome (success/failure)
+     */
+    public CompletableFuture<Boolean> submitTacticAsync(String mobType, String action, 
+                                                         float reward, String outcome, float winRate) {
+        return CompletableFuture.supplyAsync(() -> 
+            submitTactic(mobType, action, reward, outcome, winRate), executor
+        );
+    }
+    
+    /**
+     * Submit a learned tactic to the global repository (blocking)
+     * Uses GZIP compression if beneficial
+     * Automatically calculates and assigns tactic tier based on win rate
+     * 
+     * @param mobType The type of mob (zombie, skeleton, etc.)
+     * @param action The action taken
+     * @param reward The reward received
+     * @param outcome Success or failure outcome
+     * @param winRate Win rate (0.0-1.0) used to determine tier
+     */
+    public boolean submitTactic(String mobType, String action, float reward, String outcome, float winRate) {
+        return submitTactic(mobType, action, reward, outcome, winRate, false);
+    }
+    
+    /**
+     * Submit a learned tactic with bootstrap flag (Legacy endpoint)
+     * New v3.0 worker uses /api/upload with FedAvgM aggregation
+     * ✅ HARDENED: Validates data before submission
+     * @param bootstrap If true, this is a first-encounter upload (bypasses round restrictions)
+     */
+    public boolean submitTactic(String mobType, String action, float reward, String outcome, float winRate, boolean bootstrap) {
+        try {
+            // ✅ VALIDATE INPUTS BEFORE SUBMISSION
+            if (mobType == null || mobType.isEmpty()) {
+                LOGGER.error("Cannot submit tactic with null/empty mobType");
+                return false;
+            }
+            
+            if (action == null || action.isEmpty()) {
+                LOGGER.error("Cannot submit tactic with null/empty action for {}", mobType);
+                return false;
+            }
+            
+            // Clamp winRate to valid range [0.0, 1.0]
+            if (winRate < 0.0f || winRate > 1.0f) {
+                LOGGER.warn("Invalid winRate {} for {}: {} - clamping to [0.0, 1.0]", 
+                    winRate, mobType, action);
+                winRate = Math.max(0.0f, Math.min(1.0f, winRate));
+            }
+            
+            // Validate reward is reasonable (prevent overflow attacks)
+            if (Float.isNaN(reward) || Float.isInfinite(reward)) {
+                LOGGER.error("Cannot submit tactic with NaN/Infinite reward for {}: {}", mobType, action);
+                return false;
+            }
+            
+            if (Math.abs(reward) > 100.0f) {
+                LOGGER.warn("Suspiciously large reward {} for {}: {} - capping at ±100", 
+                    reward, mobType, action);
+                reward = Math.max(-100.0f, Math.min(100.0f, reward));
+            }
+            
+            // Mark as dirty for potential batching
+            dirtyTracker.markDirty(mobType, action);
+            
+            // Build advanced payload for FedAvgM worker
+            JsonObject tactics = new JsonObject();
+            JsonObject tacticData = new JsonObject();
+            
+            // ✅ ENFORCE INVARIANTS: Create data with correct counts
+            int successCount = Math.round(winRate);  // 1 if winRate >= 0.5, 0 otherwise
+            int failureCount = 1 - successCount;
+            int totalCount = 1;
+            
+            tacticData.addProperty("avgReward", reward);
+            tacticData.addProperty("totalReward", reward);
+            tacticData.addProperty("count", totalCount);
+            tacticData.addProperty("successCount", successCount);
+            tacticData.addProperty("failureCount", failureCount);
+            tacticData.addProperty("successRate", winRate);
+            tacticData.addProperty("weightedAvgReward", reward);  // Initialize momentum state
+            tacticData.addProperty("momentum", 0.0);  // Initialize velocity
+            tacticData.addProperty("lastUpdate", System.currentTimeMillis());
+            
+            tactics.add(action, tacticData);
+            
+            JsonObject payload = new JsonObject();
+            payload.addProperty("mobType", mobType);
+            payload.addProperty("serverId", serverId);
+            payload.addProperty("aggregationMethod", "FedAvgM");
+            payload.add("tactics", tactics);
+            payload.addProperty("timestamp", System.currentTimeMillis());
+            payload.addProperty("version", 1);
+            if (bootstrap) {
+                payload.addProperty("bootstrap", true);
+            }
+            
+            String jsonPayload = gson.toJson(payload);
+            
+            // Use advanced FedAvgM endpoint
+            String response = sendPostRequest("api/upload", jsonPayload);
+            LOGGER.debug("Submitted validated tactic via FedAvgM: {} - {} (reward: {}, winRate: {})", 
+                mobType, action, reward, winRate);
+            
+            if (response != null) {
+                totalSubmissions++;
+                lastSuccessfulSync = System.currentTimeMillis();
+                return true;
+            } else {
+                failedSubmissions++;
+                return false;
+            }
+            
+        } catch (Exception e) {
+            failedSubmissions++;
+            LOGGER.warn("Failed to submit tactic: {}", e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Upload replay buffer samples to Cloudflare Worker for global pooling
+     * Enables deep learning from shared experiences across all servers
+     * 
+     * @param mobType The mob type these experiences are from
+     * @param samples List of replay buffer samples (state, action, reward, nextState, done)
+     * @return true if upload successful
+     */
+    public boolean uploadReplayBuffer(String mobType, java.util.List<Map<String, Object>> samples) {
+        if (samples == null || samples.isEmpty()) {
+            return false;
+        }
+        
+        try {
+            JsonObject payload = new JsonObject();
+            payload.addProperty("mobType", mobType);
+            payload.addProperty("serverId", serverId);
+            
+            // Convert samples to JSON array
+            com.google.gson.JsonArray samplesArray = new com.google.gson.JsonArray();
+            for (Map<String, Object> sample : samples) {
+                JsonObject sampleJson = new JsonObject();
+                for (Map.Entry<String, Object> entry : sample.entrySet()) {
+                    if (entry.getValue() instanceof Number) {
+                        sampleJson.addProperty(entry.getKey(), (Number) entry.getValue());
+                    } else if (entry.getValue() instanceof Boolean) {
+                        sampleJson.addProperty(entry.getKey(), (Boolean) entry.getValue());
+                    } else {
+                        sampleJson.addProperty(entry.getKey(), String.valueOf(entry.getValue()));
+                    }
+                }
+                samplesArray.add(sampleJson);
+            }
+            payload.add("samples", samplesArray);
+            
+            String jsonPayload = gson.toJson(payload);
+            String response = sendPostRequest("api/upload-replay", jsonPayload);
+            
+            if (response != null) {
+                LOGGER.debug("Uploaded {} replay samples for {} to global pool", samples.size(), mobType);
+                return true;
+            } else {
+                LOGGER.warn("Failed to upload replay buffer for {}", mobType);
+                return false;
+            }
+            
+        } catch (Exception e) {
+            LOGGER.warn("Replay buffer upload error: {}", e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Download global tactics from all servers (async)
+     */
+    public CompletableFuture<Map<String, Object>> downloadTacticsAsync() {
+        return CompletableFuture.supplyAsync(this::downloadTactics, executor);
+    }
+    
+    /**
+     * Download global tactics from Cloudflare API (blocking)
+     * Cloudflare Worker uses FedAvgM aggregation weighted by spawn frequency
+     * Returns: aggregated tactics + specialized layers + replay samples
+     * 
+     * @return Map of mob types to tactic data, or empty map if failed
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> downloadTactics() {
+        // Check cache first
+        Map<String, Object> cached = cache.get("global_tactics");
+        if (cached != null) {
+            cacheHits++;
+            LOGGER.info("Using cached tactics data (cache hit #{})", cacheHits);
+            return cached;
+        }
+        
+        cacheMisses++;
+        
+        // Throttle download requests to prevent rate limit exhaustion
+        // Add random jitter (0-5 seconds) to prevent simultaneous requests
+        if (!downloadThrottler.tryAcquire()) {
+            LOGGER.warn("Download throttled - too many recent requests. Using fallback.");
+            return new Object2ObjectOpenHashMap<>();
+        }
+        
+        LOGGER.debug("Cache miss, downloading from Cloudflare Worker (miss #{})", cacheMisses);
+        
+        try {
+            // Fetch the current global model from the Worker (source of truth).
+            // NOTE: GitHub is observability only; clients should never read from it.
+            String response = sendGetRequest("api/global");
+            if (response == null || response.isEmpty()) {
+                failedDownloads++;
+                LOGGER.warn("No global tactics available from API");
+                return new Object2ObjectOpenHashMap<>();
+            }
+
+            JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+            JsonObject tacticsJson = json.has("tactics") && json.get("tactics").isJsonObject()
+                ? json.getAsJsonObject("tactics")
+                : null;
+
+            if (tacticsJson == null || tacticsJson.entrySet().isEmpty()) {
+                failedDownloads++;
+                LOGGER.warn("No global tactics available from API");
+                return new Object2ObjectOpenHashMap<>();
+            }
+
+            Map<String, Object> tacticsData = new Object2ObjectOpenHashMap<>();
+            tacticsData.put("version", "3.0.0");
+            tacticsData.put("timestamp", System.currentTimeMillis());
+
+            if (json.has("round") && json.get("round").isJsonPrimitive()) {
+                try {
+                    tacticsData.put("round", json.get("round").getAsInt());
+                } catch (Exception ignored) {
+                    // Non-critical
+                }
+            }
+
+            if (json.has("contributors") && json.get("contributors").isJsonPrimitive()) {
+                try {
+                    tacticsData.put("server_count", json.get("contributors").getAsInt());
+                } catch (Exception ignored) {
+                    // Non-critical
+                }
+            }
+
+            Map<String, Object> tactics = new Object2ObjectOpenHashMap<>();
+            for (Map.Entry<String, JsonElement> mobEntry : tacticsJson.entrySet()) {
+                try {
+                    Map<String, Object> mobTactics = gson.fromJson(mobEntry.getValue(), Map.class);
+                    if (mobTactics != null && !mobTactics.isEmpty()) {
+                        tactics.put(mobEntry.getKey(), mobTactics);
+                    }
+                } catch (Exception e) {
+                    LOGGER.debug("Failed to parse tactics for {}: {}", mobEntry.getKey(), e.getMessage());
+                }
+            }
+
+            tacticsData.put("tactics", tactics);
+
+            if (!tactics.isEmpty()) {
+                totalDownloads++;
+                lastSuccessfulSync = System.currentTimeMillis();
+                
+                // Cache the result
+                cache.put("global_tactics", tacticsData);
+                
+                LOGGER.info("Downloaded global tactics from API - {} mob types (cached for 5min)", tactics.size());
+                return tacticsData;
+            } else {
+                failedDownloads++;
+                LOGGER.warn("No global tactics available from API");
+                return new Object2ObjectOpenHashMap<>();
+            }
+            
+        } catch (Exception e) {
+            failedDownloads++;
+            LOGGER.warn("Failed to download tactics from API: {}", e.getMessage());
+            return new Object2ObjectOpenHashMap<>();
+        }
+    }
+    
+    /**
+     * Get API statistics
+     */
+    public Map<String, Object> getStatistics() {
+        try {
+            String response = sendGetRequest("api/stats");
+            
+            if (response != null) {
+                return gson.fromJson(response, new TypeToken<Map<String, Object>>() {}.getType());
+            }
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to get statistics: {}", e.getMessage());
+        }
+        
+        return new Object2ObjectOpenHashMap<>();
+    }
+    
+    /**
+     * Get client-side performance statistics
+     */
+    public Map<String, Object> getClientStats() {
+        Map<String, Object> stats = new Object2ObjectOpenHashMap<>();
+        stats.put("totalSubmissions", totalSubmissions);
+        stats.put("totalDownloads", totalDownloads);
+        stats.put("failedSubmissions", failedSubmissions);
+        stats.put("failedDownloads", failedDownloads);
+        stats.put("lastSuccessfulSync", lastSuccessfulSync);
+        stats.put("compressionBytesSaved", compressionBytesSaved);
+        stats.put("cacheHits", cacheHits);
+        stats.put("cacheMisses", cacheMisses);
+        stats.put("cacheHitRate", cacheHits + cacheMisses > 0 ? 
+            (float) cacheHits / (cacheHits + cacheMisses) * 100 : 0);
+        
+        // Dirty flag stats
+        DirtyFlagTracker.DirtyStats dirtyStats = dirtyTracker.getStats();
+        stats.put("dirtyMobTypes", dirtyStats.dirtyMobTypes);
+        stats.put("dirtyTactics", dirtyStats.dirtyTactics);
+        
+        // Cache stats
+        TacticsCache.CacheStats cacheStats = cache.getStats();
+        stats.put("cachedEntries", cacheStats.entries);
+        stats.put("cacheTTL", cacheStats.ttlMs);
+        
+        return stats;
+    }
+    
+    /**
+     * Check if mob type has unsaved changes
+     */
+    public boolean hasDirtyData(String mobType) {
+        return dirtyTracker.isDirty(mobType);
+    }
+    
+    /**
+     * Clear cache manually
+     */
+    public void clearCache() {
+        cache.clear();
+    }
+    
+    /**
+     * Get dirty flag tracker for external use
+     */
+    public DirtyFlagTracker getDirtyTracker() {
+        return dirtyTracker;
+    }
+    
+    /**
+     * Send HTTP POST request with retry logic
+     */
+    private String sendPostRequest(String endpoint, String jsonPayload) {
+        int attempt = 0;
+        Exception lastException = null;
+        
+        while (attempt < maxRetries) {
+            try {
+                URL url = new URL(apiEndpoint + endpoint);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                
+                // Configure connection
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setRequestProperty("User-Agent", "MCA-AI-Enhanced/1.0");
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(connectTimeoutMs);
+                conn.setReadTimeout(readTimeoutMs);
+                
+                // Write payload
+                try (OutputStream os = conn.getOutputStream()) {
+                    byte[] input = jsonPayload.getBytes(StandardCharsets.UTF_8);
+                    os.write(input, 0, input.length);
+                }
+                
+                // Read response
+                int responseCode = conn.getResponseCode();
+                
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    try (BufferedReader br = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        StringBuilder response = new StringBuilder();
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            response.append(line);
+                        }
+                        return response.toString();
+                    }
+                } else {
+                    LOGGER.warn("API returned status {}: {}", responseCode, conn.getResponseMessage());
+                    
+                    // Don't retry on client errors (400-499)
+                    if (responseCode >= 400 && responseCode < 500) {
+                        return null;
+                    }
+                }
+                
+            } catch (Exception e) {
+                lastException = e;
+                LOGGER.debug("POST attempt {} failed: {}", attempt + 1, e.getMessage());
+            }
+            
+            attempt++;
+            
+            // Exponential backoff
+            if (attempt < maxRetries) {
+                try {
+                    Thread.sleep((long) (1000 * Math.pow(2, attempt)));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        
+        if (lastException != null) {
+            LOGGER.warn("POST request failed after {} attempts: {}", maxRetries, lastException.getMessage());
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Send compressed HTTP POST request with retry logic
+     * Uses GZIP compression for bandwidth reduction
+     */
+    @SuppressWarnings("unused")
+    private String sendCompressedPostRequest(String endpoint, byte[] compressedData) {
+        int attempt = 0;
+        Exception lastException = null;
+        
+        while (attempt < maxRetries) {
+            try {
+                URL url = new URL(apiEndpoint + endpoint);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                
+                // Configure connection
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setRequestProperty("Content-Encoding", "gzip");
+                conn.setRequestProperty("User-Agent", "MCA-AI-Enhanced/1.0");
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(connectTimeoutMs);
+                conn.setReadTimeout(readTimeoutMs);
+                
+                // Write compressed payload
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(compressedData);
+                }
+                
+                // Read response
+                int responseCode = conn.getResponseCode();
+                
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    try (BufferedReader br = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        StringBuilder response = new StringBuilder();
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            response.append(line);
+                        }
+                        return response.toString();
+                    }
+                } else {
+                    LOGGER.warn("API returned status {}: {}", responseCode, conn.getResponseMessage());
+                    
+                    // Don't retry on client errors (400-499)
+                    if (responseCode >= 400 && responseCode < 500) {
+                        return null;
+                    }
+                }
+                
+            } catch (Exception e) {
+                lastException = e;
+                LOGGER.debug("Compressed POST attempt {} failed: {}", attempt + 1, e.getMessage());
+            }
+            
+            attempt++;
+            
+            // Exponential backoff
+            if (attempt < maxRetries) {
+                try {
+                    Thread.sleep((long) (1000 * Math.pow(2, attempt)));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        
+        if (lastException != null) {
+            LOGGER.warn("Compressed POST request failed after {} attempts: {}", maxRetries, lastException.getMessage());
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Send HTTP GET request with retry logic
+     */
+    private String sendGetRequest(String endpoint) {
+        int attempt = 0;
+        Exception lastException = null;
+        
+        while (attempt < maxRetries) {
+            try {
+                URL url = new URL(apiEndpoint + endpoint);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                
+                // Configure connection
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("User-Agent", "MCA-AI-Enhanced/1.0");
+                conn.setConnectTimeout(connectTimeoutMs);
+                conn.setReadTimeout(readTimeoutMs);
+                
+                // Read response
+                int responseCode = conn.getResponseCode();
+                
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    try (BufferedReader br = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        StringBuilder response = new StringBuilder();
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            response.append(line);
+                        }
+                        return response.toString();
+                    }
+                } else {
+                    LOGGER.warn("API returned status {}: {}", responseCode, conn.getResponseMessage());
+                }
+                
+            } catch (Exception e) {
+                lastException = e;
+                LOGGER.debug("GET attempt {} failed: {}", attempt + 1, e.getMessage());
+            }
+            
+            attempt++;
+            
+            // Exponential backoff
+            if (attempt < maxRetries) {
+                try {
+                    Thread.sleep((long) (1000 * Math.pow(2, attempt)));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        
+        if (lastException != null) {
+            LOGGER.warn("GET request failed after {} attempts: {}", maxRetries, lastException.getMessage());
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Get client statistics
+     */
+    public String getStatusString() {
+        long successRate = totalSubmissions > 0 
+            ? ((totalSubmissions - failedSubmissions) * 100 / totalSubmissions) 
+            : 0;
+        
+        return String.format(
+            "API Client Stats - Submissions: %d (%.1f%% success), Downloads: %d, Last sync: %ds ago, Server ID: %s",
+            totalSubmissions,
+            successRate,
+            totalDownloads,
+            (System.currentTimeMillis() - lastSuccessfulSync) / 1000,
+            serverId.substring(0, 8) // Show first 8 chars of server ID
+        );
+    }
+    
+    /**
+     * Generate unique server ID for conflict resolution
+     */
+    private String generateServerId() {
+        // Use combination of timestamp, random value, and system properties
+        String seed = System.currentTimeMillis() + "-" + 
+                      ThreadLocalRandom.current().nextLong() + "-" +
+                      System.getProperty("user.name", "unknown");
+        return Integer.toHexString(seed.hashCode());
+    }
+    
+    /**
+     * Get server ID (for logging/debugging)
+     */
+    @SuppressWarnings("unused")
+    private String getServerId() {
+        return serverId;
+    }
+    
+    /**
+     * Download request throttler to prevent rate limit exhaustion
+     * Uses token bucket algorithm with random jitter
+     */
+    static class DownloadThrottler {
+        private final int maxRequests;
+        private final long windowMs;
+        private final ConcurrentLinkedQueue<Long> requestTimes = new ConcurrentLinkedQueue<>();
+        private final ThreadLocalRandom random = ThreadLocalRandom.current();
+        
+        public DownloadThrottler(int maxRequests, long windowMs) {
+            this.maxRequests = maxRequests;
+            this.windowMs = windowMs;
+        }
+        
+        public boolean tryAcquire() {
+            long now = System.currentTimeMillis();
+            
+            // Add random jitter (0-5 seconds) to prevent thundering herd
+            try {
+                Thread.sleep(random.nextInt(5000));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            
+            // Remove old requests outside the window
+            requestTimes.removeIf(time -> now - time > windowMs);
+            
+            // Check if we can make a new request
+            if (requestTimes.size() < maxRequests) {
+                requestTimes.add(now);
+                return true;
+            }
+            
+            return false;
+        }
+    }
+    
+    /**
+     * Shutdown executor on mod unload
+     */
+    public void shutdown() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+    
+    // ========================================================================
+    // ADVANCED ML v2.0.0 - Sequence Tracking & Meta-Learning
+    // ========================================================================
+    
+    /**
+     * Submit a combat sequence to Cloudflare for pattern analysis (async)
+     */
+    public CompletableFuture<Boolean> submitSequenceAsync(String mobType, 
+                                                            java.util.List<com.minecraft.gancity.ai.MobBehaviorAI.ActionRecord> sequence,
+                                                            String outcome, long duration, String mobId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Build sequence JSON
+                JsonObject payload = new JsonObject();
+                payload.addProperty("mobType", mobType);
+                payload.addProperty("finalOutcome", outcome);
+                payload.addProperty("duration", duration);
+                payload.addProperty("mobId", mobId);
+                
+                // Add sequence array
+                com.google.gson.JsonArray sequenceArray = new com.google.gson.JsonArray();
+                for (com.minecraft.gancity.ai.MobBehaviorAI.ActionRecord record : sequence) {
+                    JsonObject actionObj = new JsonObject();
+                    actionObj.addProperty("action", record.action);
+                    actionObj.addProperty("reward", record.reward);
+                    sequenceArray.add(actionObj);
+                }
+                payload.add("sequence", sequenceArray);
+                
+                String jsonPayload = gson.toJson(payload);
+                String response = sendPostRequest("api/submit-sequence", jsonPayload);
+                
+                if (response != null) {
+                    LOGGER.debug("Submitted sequence: {} with {} actions ({})", mobType, sequence.size(), outcome);
+                    return true;
+                }
+                return false;
+                
+            } catch (Exception e) {
+                LOGGER.warn("Failed to submit sequence: {}", e.getMessage());
+                return false;
+            }
+        }, executor);
+    }
+    
+    /**
+     * Download meta-learning recommendations for all mob types
+     */
+    public java.util.Map<String, java.util.List<com.minecraft.gancity.ai.MobBehaviorAI.MetaLearningRecommendation>> 
+            downloadMetaLearningRecommendations() {
+        
+        java.util.Map<String, java.util.List<com.minecraft.gancity.ai.MobBehaviorAI.MetaLearningRecommendation>> result = 
+            new Object2ObjectOpenHashMap<>();
+        
+        try {
+            String response = sendGetRequest("api/meta-learning");
+            if (response == null) {
+                return result;
+            }
+            
+            JsonObject json = gson.fromJson(response, JsonObject.class);
+            if (!json.has("metaLearning")) {
+                return result;
+            }
+            
+            JsonObject metaLearning = json.getAsJsonObject("metaLearning");
+            if (!metaLearning.has("recommendations")) {
+                return result;
+            }
+            
+            com.google.gson.JsonArray recommendations = metaLearning.getAsJsonArray("recommendations");
+            for (com.google.gson.JsonElement elem : recommendations) {
+                JsonObject rec = elem.getAsJsonObject();
+                
+                String targetMob = rec.get("targetMob").getAsString();
+                String sourceMob = rec.get("sourceMob").getAsString();
+                String sourceAction = rec.get("sourceAction").getAsString();
+                double similarity = rec.get("similarity").getAsDouble();
+                double confidence = rec.get("confidence").getAsDouble();
+                
+                result.computeIfAbsent(targetMob, k -> new java.util.ArrayList<>())
+                    .add(new com.minecraft.gancity.ai.MobBehaviorAI.MetaLearningRecommendation(
+                        sourceMob, sourceAction, similarity, confidence
+                    ));
+            }
+            
+            LOGGER.info("Downloaded {} meta-learning recommendations", 
+                result.values().stream().mapToInt(java.util.List::size).sum());
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to download meta-learning recommendations: {}", e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Send heartbeat to coordinator (keep-alive)
+     * Required every 5-10 minutes to maintain active contributor status
+     */
+    public boolean sendHeartbeat(java.util.List<String> activeMobs) {
+        try {
+            JsonObject payload = new JsonObject();
+            payload.addProperty("serverId", serverId);
+            
+            com.google.gson.JsonArray mobsArray = new com.google.gson.JsonArray();
+            for (String mobType : activeMobs) {
+                mobsArray.add(mobType);
+            }
+            payload.add("activeMobs", mobsArray);
+            
+            String response = sendPostRequest("api/heartbeat", gson.toJson(payload));
+            if (response != null) {
+                LOGGER.debug("Heartbeat sent successfully ({} active mobs)", activeMobs.size());
+                return true;
+            }
+            return false;
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to send heartbeat: {}", e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Get coordinator status (round, contributors, etc.)
+     */
+    public Map<String, Object> getCoordinatorStatus() {
+        try {
+            String response = sendGetRequest("status");
+            if (response != null) {
+                JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+                
+                Map<String, Object> status = new java.util.HashMap<>();
+                status.put("round", json.has("round") ? json.get("round").getAsInt() : 0);
+                status.put("contributors", json.has("contributors") ? json.get("contributors").getAsInt() : 0);
+                status.put("modelsInRound", json.has("modelsInCurrentRound") ? json.get("modelsInCurrentRound").getAsInt() : 0);
+                status.put("lastAggregation", json.has("lastAggregation") ? json.get("lastAggregation").getAsString() : "unknown");
+                status.put("hasGlobalModel", json.has("hasGlobalModel") ? json.get("hasGlobalModel").getAsBoolean() : false);
+                
+                return status;
+            }
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to get coordinator status: {}", e.getMessage());
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Check if worker is healthy
+     */
+    public boolean isHealthy() {
+        try {
+            String response = sendGetRequest("health");
+            if (response != null) {
+                JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+                return json.has("status") && "healthy".equals(json.get("status").getAsString());
+            }
+        } catch (Exception e) {
+            LOGGER.warn("Health check failed: {}", e.getMessage());
+        }
+        return false;
+    }
+    
+    // ==================== TIER PROGRESSION ENDPOINTS (HNN-INSPIRED) ====================
+    
+    /**
+     * Submit tier progression data to Cloudflare
+     * Stores AI tier experience data for federation sync
+     */
+    public boolean submitTierData(Map<String, Object> tierData) {
+        try {
+            JsonObject payload = new JsonObject();
+            
+            // Add experience map
+            if (tierData.containsKey("experience")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Integer> expData = (Map<String, Integer>) tierData.get("experience");
+                JsonObject expJson = new JsonObject();
+                for (Map.Entry<String, Integer> entry : expData.entrySet()) {
+                    expJson.addProperty(entry.getKey(), entry.getValue());
+                }
+                payload.add("experience", expJson);
+            }
+            
+            // Add tier names
+            if (tierData.containsKey("tiers")) {
+                @SuppressWarnings("unchecked")
+                Map<String, String> tiersData = (Map<String, String>) tierData.get("tiers");
+                JsonObject tiersJson = new JsonObject();
+                for (Map.Entry<String, String> entry : tiersData.entrySet()) {
+                    tiersJson.addProperty(entry.getKey(), entry.getValue());
+                }
+                payload.add("tiers", tiersJson);
+            }
+            
+            String response = sendPostRequest("api/tiers", payload.toString());
+            return response != null && !response.isEmpty();
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to submit tier data: {}", e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Download tier progression data from Cloudflare
+     * Returns aggregated tier experience from all servers
+     */
+    public Map<String, Object> downloadTierData() {
+        try {
+            String response = sendGetRequest("api/tiers");
+            if (response == null || response.isEmpty()) {
+                return new HashMap<>();
+            }
+            
+            JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+            Map<String, Object> result = new HashMap<>();
+            
+            // Parse experience data
+            if (json.has("experience")) {
+                JsonObject expJson = json.getAsJsonObject("experience");
+                Map<String, Integer> expMap = new HashMap<>();
+                for (Map.Entry<String, JsonElement> entry : expJson.entrySet()) {
+                    expMap.put(entry.getKey(), entry.getValue().getAsInt());
+                }
+                result.put("experience", expMap);
+            }
+            
+            // Parse tier names
+            if (json.has("tiers")) {
+                JsonObject tiersJson = json.getAsJsonObject("tiers");
+                Map<String, String> tiersMap = new HashMap<>();
+                for (Map.Entry<String, JsonElement> entry : tiersJson.entrySet()) {
+                    tiersMap.put(entry.getKey(), entry.getValue().getAsString());
+                }
+                result.put("tiers", tiersMap);
+            }
+            
+            return result;
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to download tier data: {}", e.getMessage());
+            return new HashMap<>();
+        }
+    }
+    
+    // ==================== TACTICAL EPISODE FEDERATION ====================
+    
+    /**
+     * Submit combat episode data to Cloudflare
+     * This aggregates high-level tactical patterns, not low-level actions
+     */
+    public void submitEpisodeData(Map<String, Object> episodeData) {
+        try {
+            JsonObject payload = new JsonObject();
+            
+            // Convert episode data to JSON
+            for (Map.Entry<String, Object> entry : episodeData.entrySet()) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
+                
+                if (value instanceof String) {
+                    payload.addProperty(key, (String) value);
+                } else if (value instanceof Number) {
+                    payload.addProperty(key, (Number) value);
+                } else if (value instanceof Boolean) {
+                    payload.addProperty(key, (Boolean) value);
+                } else if (value instanceof Map) {
+                    // Nested map (e.g., tacticsUsed)
+                    JsonObject nested = new JsonObject();
+                    for (Map.Entry<?, ?> nestedEntry : ((Map<?, ?>) value).entrySet()) {
+                        if (nestedEntry.getValue() instanceof Number) {
+                            nested.addProperty(nestedEntry.getKey().toString(), (Number) nestedEntry.getValue());
+                        }
+                    }
+                    payload.add(key, nested);
+                }
+            }
+            
+            String response = sendPostRequest("api/episodes", payload.toString());
+            
+            if (response != null) {
+                LOGGER.debug("Episode submitted successfully");
+            }
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to submit episode data: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * Download tactical weights from Cloudflare
+     * Returns: mobType -> tactic -> weight
+     */
+    public Map<String, Map<String, Float>> downloadTacticalWeights() {
+        try {
+            String response = sendGetRequest("api/tactical-weights");
+            if (response == null || response.isEmpty()) {
+                return new HashMap<>();
+            }
+            
+            JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+            Map<String, Map<String, Float>> weights = new HashMap<>();
+            
+            for (Map.Entry<String, JsonElement> mobEntry : json.entrySet()) {
+                String mobType = mobEntry.getKey();
+                JsonObject tacticsJson = mobEntry.getValue().getAsJsonObject();
+                
+                Map<String, Float> tactics = new HashMap<>();
+                for (Map.Entry<String, JsonElement> tacticEntry : tacticsJson.entrySet()) {
+                    tactics.put(tacticEntry.getKey(), tacticEntry.getValue().getAsFloat());
+                }
+                
+                weights.put(mobType, tactics);
+            }
+            
+            return weights;
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to download tactical weights: {}", e.getMessage());
+            return new HashMap<>();
+        }
+    }
+    
+    /**
+     * Get tactical federation statistics
+     * Returns info about episodes aggregated, samples, contributors, etc.
+     */
+    public Map<String, Object> getTacticalStatistics() {
+        try {
+            String response = sendGetRequest("api/tactical-stats");
+            if (response == null || response.isEmpty()) {
+                return new HashMap<>();
+            }
+            
+            JsonObject json = JsonParser.parseString(response).getAsJsonObject();
+            Map<String, Object> stats = new HashMap<>();
+            
+            for (Map.Entry<String, JsonElement> entry : json.entrySet()) {
+                JsonElement value = entry.getValue();
+                if (value.isJsonPrimitive()) {
+                    if (value.getAsJsonPrimitive().isNumber()) {
+                        stats.put(entry.getKey(), value.getAsNumber());
+                    } else if (value.getAsJsonPrimitive().isString()) {
+                        stats.put(entry.getKey(), value.getAsString());
+                    }
+                }
+            }
+            
+            return stats;
+            
+        } catch (Exception e) {
+            LOGGER.warn("Failed to get tactical statistics: {}", e.getMessage());
+            return new HashMap<>();
+        }
+    }
+    
+    // ==================== END TACTICAL EPISODE FEDERATION ====================
+    
+    // ==================== END TIER PROGRESSION ENDPOINTS ====================
+}
+

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "adaptivemobai",
+  "version": "${version}",
+  "name": "MCA AI Enhanced - Intelligent Villagers & Mobs",
+  "description": "An MCA Reborn addon that uses machine learning to enhance mob AI and villager behavior. Features adaptive combat AI, dynamic dialogue generation, and personality learning. Powered by Deep Java Library (DJL) for AI inference.",
+  "authors": [
+    "MCA AI Team"
+  ],
+  "contact": {
+    "sources": "https://github.com/smokydastona/Adaptive-Mob-Ai-Fabric_Fork"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.minecraft.gancity.fabric.AdaptiveMobAIFabric"
+    ]
+  },
+  "mixins": [
+    "adaptivemobai.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "1.20.1",
+    "java": ">=17",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "mca": "*"
+  }
+}
