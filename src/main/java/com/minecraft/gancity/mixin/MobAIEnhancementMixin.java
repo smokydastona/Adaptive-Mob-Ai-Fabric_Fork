@@ -98,12 +98,14 @@ public abstract class MobAIEnhancementMixin {
                 }
             }
 
-            // Parity with Forge: ensure ranged-weapon goal works even in reduced-feature mode.
-            if (mob instanceof Monster && !(mob instanceof RangedAttackMob) && !(mob instanceof CrossbowAttackMob)) {
+            // Parity with Forge: ensure mobs can actually use the ranged weapon they are holding
+            // (bow/crossbow/trident), even if they already have vanilla ranged goals.
+            // Priority 0 preempts vanilla goals so the held weapon dictates behavior.
+            if (mob instanceof Monster) {
                 try {
                     net.minecraft.nbt.CompoundTag persistent = ((PersistentDataHolder) mob).adaptivemobai$getPersistentData();
                     if (!persistent.getBoolean(GENERIC_RANGED_GOAL_TAG)) {
-                        ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(1, new GenericRangedWeaponGoal(mob, 1.0));
+                        ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(0, new GenericRangedWeaponGoal(mob, 1.0));
                         persistent.putBoolean(GENERIC_RANGED_GOAL_TAG, true);
                     }
                 } catch (Throwable ignored) {

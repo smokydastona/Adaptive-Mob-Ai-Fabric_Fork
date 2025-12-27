@@ -158,9 +158,6 @@ public class MobTierAssignmentHandler {
         if (!(mob instanceof Monster)) {
             return;
         }
-        if (mob instanceof RangedAttackMob || mob instanceof CrossbowAttackMob) {
-            return;
-        }
 
         CompoundTag persistentData = ((PersistentDataHolder) mob).adaptivemobai$getPersistentData();
         if (persistentData.getBoolean(GENERIC_RANGED_GOAL_TAG)) {
