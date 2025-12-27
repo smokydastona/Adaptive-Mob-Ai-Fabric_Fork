@@ -108,7 +108,12 @@ public class MobTierAssignmentHandler {
         Mob mob = (Mob) entity;
 
         // Parity with Forge: ensure ranged-weapon goal exists even in reduced-feature mode.
-        ensureGenericRangedWeaponGoal(mob);
+        try {
+            ensureGenericRangedWeaponGoal(mob);
+        } catch (Throwable t) {
+            LOGGER.debug("[Tier System] Failed to inject generic ranged goal for {}: {}",
+                mob.getType().toString(), t.toString());
+        }
         
         // Use entity's own NBT data (visible in F3) instead of PersistentData
         CompoundTag entityData = new CompoundTag();

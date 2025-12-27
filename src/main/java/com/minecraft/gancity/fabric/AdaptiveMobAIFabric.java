@@ -86,21 +86,47 @@ public final class AdaptiveMobAIFabric implements ModInitializer {
             Class<?> serverEntityEventsClass = Class.forName("net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents");
             Object event = serverEntityEventsClass.getField("ENTITY_LOAD").get(null);
 
+            // Resolve types reflectively to avoid mapping name mismatches in dev tooling.
+            Class<?> entityClass = Class.forName("net.minecraft.world.entity.Entity");
+            Class<?> serverLevelClass = Class.forName("net.minecraft.server.level.ServerLevel");
+
             Object listener = Proxy.newProxyInstance(
                 loadCallbackInterface.getClassLoader(),
                 new Class<?>[]{loadCallbackInterface},
                 (proxy, method, args) -> {
-                    // Signature varies across mappings; treat first two args as entity/world.
-                    if (args != null && args.length >= 2) {
+                    if (args == null || args.length < 2) {
+                        return null;
+                    }
+
+                    Object a0 = args[0];
+                    Object a1 = args[1];
+
+                    Object entityObj = null;
+                    Object levelObj = null;
+
+                    // Common signature: (Entity, ServerLevel)
+                    if (a0 != null && a1 != null && entityClass.isInstance(a0) && serverLevelClass.isInstance(a1)) {
+                        entityObj = a0;
+                        levelObj = a1;
+                    }
+                    // Some environments may swap args: (ServerLevel, Entity)
+                    else if (a0 != null && a1 != null && serverLevelClass.isInstance(a0) && entityClass.isInstance(a1)) {
+                        entityObj = a1;
+                        levelObj = a0;
+                    }
+
+                    if (entityObj != null && levelObj != null) {
                         try {
                             MobTierAssignmentHandler.onEntityLoad(
-                                (net.minecraft.world.entity.Entity) args[0],
-                                (net.minecraft.server.level.ServerLevel) args[1]
+                                (net.minecraft.world.entity.Entity) entityObj,
+                                (net.minecraft.server.level.ServerLevel) levelObj
                             );
-                        } catch (Throwable ignored) {
-                            // Never break server load if mappings/signature differ.
+                        } catch (Throwable t) {
+                            // Never crash server entity loading; log at debug for diagnosis.
+                            GANCityMod.LOGGER.debug("ENTITY_LOAD handler threw: {}", t.toString());
                         }
                     }
+
                     return null;
                 }
             );
