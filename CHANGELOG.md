@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Parity (Forge): Allow hostile mobs to spawn with and use bows/crossbows/tridents (universal weapon loadouts).
+- Parity (Forge): Ensure the generic ranged-weapon goal is injected even if ML is unavailable (reduced-feature/safe-mode behavior).
+- Parity (Forge): Batch federation uploads per mobType to avoid single-action uploads locking a round; remove synthetic seeding uploads.
 - CI: trigger build to validate auto version bump.
 - Rename output jar to `Adaptive-Mob-Ai-Fabric-<version>.jar` to avoid mixing it up with Forge/legacy builds.
 - Update docs to reference the Fabric jar name.
