@@ -9,7 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 
-@SuppressWarnings({"removal", "null"})
+@SuppressWarnings({"null"})
 public class GANCityMod {
     public static final String MODID = "adaptivemobai";
     public static final Logger LOGGER = LogUtils.getLogger();  // Changed to public for mixin access

@@ -1,5 +1,6 @@
 package com.minecraft.gancity.mixin;
 
+import com.minecraft.gancity.ai.GenericRangedWeaponGoal;
 import com.minecraft.gancity.util.PersistentDataHolder;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -122,6 +123,12 @@ public abstract class MobAIEnhancementMixin {
             // Add AI-enhanced combat/survival goal to ALL other mobs
             // Hostile mobs learn combat tactics, passive mobs learn evasion and survival
             if (mob instanceof Monster) {
+                // Parity with Forge: if a non-ranged monster is holding a ranged weapon (bow/crossbow/trident),
+                // enable actual ranged attacks and make them preempt melee.
+                if (!(mob instanceof RangedAttackMob) && !(mob instanceof CrossbowAttackMob)) {
+                    ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(1, new GenericRangedWeaponGoal(mob, 1.0));
+                }
+
                 // Hostile mobs get aggressive AI with environmental tactics
                 ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(2, new AIEnhancedMeleeGoal(mob, 1.0, true, true, false));
             } else {
