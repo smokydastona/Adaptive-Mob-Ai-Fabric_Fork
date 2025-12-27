@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.8
 
 - Parity (Forge): Allow hostile mobs to spawn with and use bows/crossbows/tridents (universal weapon loadouts).
 - Parity (Forge): Ensure the generic ranged-weapon goal is injected even if ML is unavailable (reduced-feature/safe-mode behavior).
