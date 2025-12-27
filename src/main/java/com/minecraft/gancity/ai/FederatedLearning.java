@@ -140,29 +140,12 @@ public class FederatedLearning {
         
         submission.addOutcome(reward, success);
         totalDataPointsContributed++;
-        
-        // FIX: First-encounter upload (bootstrap)
+
+        // IMPORTANT: Do not upload single-action "bootstrap" tactics here.
+        // The coordinator accepts only one upload per (serverId,mobType) per round;
+        // a single-action bootstrap would lock out a later richer multi-action model.
         if (firstEncounters.add(mobType)) {
-            LOGGER.info("🚀 FIRST ENCOUNTER: {} - uploading bootstrap data", mobType);
-            syncExecutor.submit(() -> {
-                try {
-                    boolean uploaded = apiClient.submitTactic(
-                        mobType,
-                        action,
-                        reward,
-                        success ? "success" : "failure",
-                        success ? 1.0f : 0.0f,
-                        true  // bootstrap flag
-                    );
-                    if (uploaded) {
-                        LOGGER.info("✅ Bootstrap upload successful for {}", mobType);
-                    } else {
-                        LOGGER.warn("❌ Bootstrap upload failed for {}", mobType);
-                    }
-                } catch (Exception e) {
-                    LOGGER.error("Bootstrap upload error: {}", e.getMessage());
-                }
-            });
+            LOGGER.info("🚀 FIRST ENCOUNTER: {} - tracking (no bootstrap upload)", mobType);
         }
     }
     
@@ -185,50 +168,73 @@ public class FederatedLearning {
             return;
         }
         
-        // ⚡ CRITICAL: Copy submissions for async processing (don't block this method)
+        // ⚡ CRITICAL: Snapshot submissions for async processing (don't block this method)
         final Map<String, TacticSubmission> submissionsToUpload = new Object2ObjectOpenHashMap<>(pendingSubmissions);
-        final int submissionCount = submissionsToUpload.size();
-        
+
         // Fire and forget - submit async on API client's executor
         CompletableFuture.runAsync(() -> {
             try {
-                LOGGER.info("Submitting {} local tactics to global repository...", submissionCount);
-                
-                int successCount = 0;
-                int failCount = 0;
-                
-                // Submit each pending tactic (happens on background thread)
+                // Group by mobType so we upload one multi-action model per mobType per round.
+                Map<String, Map<String, TacticSubmission>> byMob = new HashMap<>();
                 for (TacticSubmission submission : submissionsToUpload.values()) {
-                    boolean success = apiClient.submitTactic(
-                        submission.mobType,
-                        submission.action,
-                        submission.getAverageReward(),
-                        submission.getSuccessRate() > 0.5f ? "success" : "failure",
-                        submission.getSuccessRate()  // Pass win rate for tier calculation
-                    );
-                    
-                    if (success) {
-                        successCount++;
-                } else {
-                    failCount++;
+                    if (submission == null || !submission.isValid()) {
+                        continue;
+                    }
+                    byMob.computeIfAbsent(submission.mobType, k -> new HashMap<>()).put(submission.action, submission);
                 }
+
+                int uploadedMobModels = 0;
+                int skippedSingleAction = 0;
+                Set<String> uploadedKeys = new HashSet<>();
+
+                for (Map.Entry<String, Map<String, TacticSubmission>> mobEntry : byMob.entrySet()) {
+                    String mobType = mobEntry.getKey();
+                    Map<String, TacticSubmission> actions = mobEntry.getValue();
+                    if (mobType == null || actions == null) {
+                        continue;
+                    }
+
+                    // Avoid uploading 1-action models that would freeze observability for this mobType in the round.
+                    if (actions.size() < 2) {
+                        skippedSingleAction++;
+                        continue;
+                    }
+
+                    Map<String, CloudflareAPIClient.ModelTactic> model = new HashMap<>();
+                    for (TacticSubmission s : actions.values()) {
+                        model.put(s.action, new CloudflareAPIClient.ModelTactic(
+                            s.getAverageReward(),
+                            s.totalReward,
+                            s.getTotalCount(),
+                            s.getSuccessCount(),
+                            s.getFailureCount(),
+                            s.getSuccessRate()
+                        ));
+                    }
+
+                    boolean ok = apiClient.submitTacticsModel(mobType, model, false);
+                    if (ok) {
+                        uploadedMobModels++;
+                        for (String action : actions.keySet()) {
+                            uploadedKeys.add(mobType + ":" + action);
+                        }
+                    }
+                }
+
+                if (uploadedMobModels > 0) {
+                    for (String key : uploadedKeys) {
+                        pendingSubmissions.remove(key);
+                    }
+                    totalDataPointsContributed = pendingSubmissions.values().stream().mapToLong(s -> s.getTotalCount()).sum();
+                    lastSyncTime = currentTime;
+                    LOGGER.info("Submitted {} mob models (skipped {} single-action models)", uploadedMobModels, skippedSingleAction);
+                } else {
+                    LOGGER.info("No eligible mob models to submit (likely single-action only)");
+                }
+            } catch (Exception e) {
+                LOGGER.error("Error submitting tactics (non-critical): {}", e.getMessage());
             }
-            
-            if (successCount > 0) {
-                LOGGER.info("Successfully submitted {} tactics ({} failed)", successCount, failCount);
-                lastSyncTime = currentTime;
-                
-                // Clear submitted tactics
-                pendingSubmissions.clear();
-                totalDataPointsContributed = 0;
-            } else {
-                LOGGER.warn("Failed to submit any tactics to API");
-            }
-            
-        } catch (Exception e) {
-            LOGGER.error("Error submitting tactics (non-critical): {}", e.getMessage());
-        }
-    }, apiClient.executor); // ⚡ Use API client's executor for true async
+        }, apiClient.executor); // ⚡ Use API client's executor for true async
     }
     
     /**
@@ -280,26 +286,11 @@ public class FederatedLearning {
                 
                 // If we have pending submissions, upload those
                 if (!pendingSubmissions.isEmpty()) {
-                    LOGGER.info("📤 Uploading {} pending tactics", pendingSubmissions.size());
-                    for (TacticSubmission submission : pendingSubmissions.values()) {
-                        apiClient.submitTactic(
-                            submission.mobType,
-                            submission.action,
-                            submission.getAverageReward(),
-                            submission.getSuccessRate() > 0.5f ? "success" : "failure",
-                            submission.getSuccessRate()
-                        );
-                    }
-                    pendingSubmissions.clear();
+                    LOGGER.info("📤 Force-uploading pending tactics (mobType batched)");
+                    forceSubmitLocalTactics();
                 } else {
-                    // Seed federation after a reset.
-                    // The Worker aggregates after it has >= 3 models in the current round.
-                    // On a single server, the fastest way to kickstart a fresh round is to
-                    // submit 3 bootstrap uploads across distinct mob types.
-                    LOGGER.info("📡 Seeding bootstrap uploads to establish federation state");
-                    apiClient.submitTactic("zombie", "heartbeat_init", 0.5f, "success", 0.5f, true);
-                    apiClient.submitTactic("skeleton", "heartbeat_init", 0.5f, "success", 0.5f, true);
-                    apiClient.submitTactic("creeper", "heartbeat_init", 0.5f, "success", 0.5f, true);
+                    // Do NOT seed synthetic tactics.
+                    LOGGER.info("📡 No pending tactics to upload (skipping synthetic seeding)");
                 }
                 
                 lastSyncTime = System.currentTimeMillis();
@@ -837,37 +828,61 @@ public class FederatedLearning {
         }
         
         try {
-            LOGGER.info("Force uploading {} local tactics to global repository...", pendingSubmissions.size());
-            
-            int successCount = 0;
-            int failCount = 0;
-            
-            // Submit each pending tactic
-            for (TacticSubmission submission : pendingSubmissions.values()) {
-                boolean success = apiClient.submitTactic(
-                    submission.mobType,
-                    submission.action,
-                    submission.getAverageReward(),
-                    submission.getSuccessRate() > 0.5f ? "success" : "failure",
-                    submission.getSuccessRate()  // Pass win rate for tier calculation
-                );
-                
-                if (success) {
-                    successCount++;
-                } else {
-                    failCount++;
+            Map<String, Map<String, TacticSubmission>> byMob = new HashMap<>();
+            for (TacticSubmission submission : new ArrayList<>(pendingSubmissions.values())) {
+                if (submission == null || !submission.isValid()) {
+                    continue;
+                }
+                byMob.computeIfAbsent(submission.mobType, k -> new HashMap<>()).put(submission.action, submission);
+            }
+
+            int uploadedMobModels = 0;
+            int skippedSingleAction = 0;
+            Set<String> uploadedKeys = new HashSet<>();
+
+            for (Map.Entry<String, Map<String, TacticSubmission>> mobEntry : byMob.entrySet()) {
+                String mobType = mobEntry.getKey();
+                Map<String, TacticSubmission> actions = mobEntry.getValue();
+                if (mobType == null || actions == null) {
+                    continue;
+                }
+
+                // Avoid uploading 1-action models that would freeze observability for this mobType in the round.
+                if (actions.size() < 2) {
+                    skippedSingleAction++;
+                    continue;
+                }
+
+                Map<String, CloudflareAPIClient.ModelTactic> model = new HashMap<>();
+                for (TacticSubmission s : actions.values()) {
+                    model.put(s.action, new CloudflareAPIClient.ModelTactic(
+                        s.getAverageReward(),
+                        s.totalReward,
+                        s.getTotalCount(),
+                        s.getSuccessCount(),
+                        s.getFailureCount(),
+                        s.getSuccessRate()
+                    ));
+                }
+
+                boolean ok = apiClient.submitTacticsModel(mobType, model, false);
+                if (ok) {
+                    uploadedMobModels++;
+                    for (String action : actions.keySet()) {
+                        uploadedKeys.add(mobType + ":" + action);
+                    }
                 }
             }
-            
-            if (successCount > 0) {
-                LOGGER.info("✓ Uploaded {} tactics to Cloudflare ({} failed)", successCount, failCount);
+
+            if (uploadedMobModels > 0) {
+                for (String key : uploadedKeys) {
+                    pendingSubmissions.remove(key);
+                }
+                totalDataPointsContributed = pendingSubmissions.values().stream().mapToLong(s -> s.getTotalCount()).sum();
                 lastSyncTime = System.currentTimeMillis();
-                
-                // Clear submitted tactics
-                pendingSubmissions.clear();
-                totalDataPointsContributed = 0;
+                LOGGER.info("✓ Uploaded {} mob models to Cloudflare (skipped {} single-action models)", uploadedMobModels, skippedSingleAction);
             } else {
-                LOGGER.warn("⚠ Failed to upload any tactics to API");
+                LOGGER.info("No eligible multi-action models to upload (skipped {})", skippedSingleAction);
             }
             
         } catch (Exception e) {

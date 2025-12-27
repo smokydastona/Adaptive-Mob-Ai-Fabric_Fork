@@ -24,6 +24,8 @@ import java.util.EnumSet;
 @SuppressWarnings({"null", "unused"})
 public abstract class MobAIEnhancementMixin {
 
+    private static final String GENERIC_RANGED_GOAL_TAG = "AdaptiveMobAI_GenericRangedGoal";
+
     // CRITICAL: Avoid any direct reference to mod-loader-specific classes in mixin
     // fields or imports. Mixin may load/verify mixin classes very early and linking
     // loader classes too early can crash the game during bootstrap.
@@ -82,12 +84,6 @@ public abstract class MobAIEnhancementMixin {
     @Inject(method = "registerGoals", at = @At("TAIL"))
     private void onRegisterGoals(CallbackInfo ci) {
         try {
-            // SAFE MODE CHECK: Skip AI if safe mode enabled or initialization failed
-            Object behaviorAI = tryGetMobBehaviorAI();
-            if (behaviorAI == null) {
-                return;  // Safe mode or initialization failure - use vanilla AI
-            }
-            
             Mob mob = (Mob)(Object)this;
             
             // Ice and Fire compatibility - skip their mobs entirely
@@ -96,6 +92,25 @@ public abstract class MobAIEnhancementMixin {
                 if (entityId.contains("iceandfire:")) {
                     return; // Don't modify Ice and Fire entity AI
                 }
+            }
+
+            // Parity with Forge: ensure ranged-weapon goal works even in reduced-feature mode.
+            if (mob instanceof Monster && !(mob instanceof RangedAttackMob) && !(mob instanceof CrossbowAttackMob)) {
+                try {
+                    net.minecraft.nbt.CompoundTag persistent = ((PersistentDataHolder) mob).adaptivemobai$getPersistentData();
+                    if (!persistent.getBoolean(GENERIC_RANGED_GOAL_TAG)) {
+                        ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(1, new GenericRangedWeaponGoal(mob, 1.0));
+                        persistent.putBoolean(GENERIC_RANGED_GOAL_TAG, true);
+                    }
+                } catch (Throwable ignored) {
+                    // Never break goal registration
+                }
+            }
+
+            // SAFE MODE CHECK: Skip ML-driven AI if initialization failed
+            Object behaviorAI = tryGetMobBehaviorAI();
+            if (behaviorAI == null) {
+                return;  // Safe mode or initialization failure - keep vanilla goals + ranged goal
             }
             
             // Check if this is ANY villager (MCA or vanilla)
@@ -123,12 +138,6 @@ public abstract class MobAIEnhancementMixin {
             // Add AI-enhanced combat/survival goal to ALL other mobs
             // Hostile mobs learn combat tactics, passive mobs learn evasion and survival
             if (mob instanceof Monster) {
-                // Parity with Forge: if a non-ranged monster is holding a ranged weapon (bow/crossbow/trident),
-                // enable actual ranged attacks and make them preempt melee.
-                if (!(mob instanceof RangedAttackMob) && !(mob instanceof CrossbowAttackMob)) {
-                    ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(1, new GenericRangedWeaponGoal(mob, 1.0));
-                }
-
                 // Hostile mobs get aggressive AI with environmental tactics
                 ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(2, new AIEnhancedMeleeGoal(mob, 1.0, true, true, false));
             } else {

@@ -1,6 +1,7 @@
 package com.minecraft.gancity.event;
 
 import com.minecraft.gancity.GANCityMod;
+import com.minecraft.gancity.ai.GenericRangedWeaponGoal;
 import com.minecraft.gancity.ai.TacticTier;
 import com.minecraft.gancity.mixin.MobGoalSelectorAccessor;
 import com.minecraft.gancity.util.PersistentDataHolder;
@@ -12,9 +13,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.monster.*;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.slf4j.Logger;
 
 import java.util.Comparator;
@@ -83,6 +87,8 @@ public class MobTierAssignmentHandler {
     
     private static final String TIER_TAG = "AdaptiveMobAI_Tier";
     private static final String TIER_ASSIGNED_TAG = "AdaptiveMobAI_TierAssigned";
+    private static final String UNIVERSAL_WEAPONS_TAG = "AdaptiveMobAI_UniversalWeapons";
+    private static final String GENERIC_RANGED_GOAL_TAG = "AdaptiveMobAI_GenericRangedGoal";
     
     // Compatibility status logged on first use (lazy initialization prevents classloading deadlock)
     
@@ -100,6 +106,9 @@ public class MobTierAssignmentHandler {
         }
         
         Mob mob = (Mob) entity;
+
+        // Parity with Forge: ensure ranged-weapon goal exists even in reduced-feature mode.
+        ensureGenericRangedWeaponGoal(mob);
         
         // Use entity's own NBT data (visible in F3) instead of PersistentData
         CompoundTag entityData = new CompoundTag();
@@ -107,6 +116,8 @@ public class MobTierAssignmentHandler {
         
         // Check if tier already assigned (prevent reassignment on world reload)
         if (entityData.contains(TIER_TAG)) {
+            // Even if tier already exists, apply universal weapon capability once for older mobs.
+            applyUniversalWeaponRulesOnce(mob);
             return;
         }
         
@@ -125,6 +136,10 @@ public class MobTierAssignmentHandler {
         
         // Apply difficulty multiplier to mob stats
         applyTierModifiers(mob, tier);
+
+        // Parity with Forge: allow hostile mobs to pick up and use non-native weapons,
+        // and assign a simple visible randomized loadout.
+        applyUniversalWeaponRulesOnce(mob);
         
         LOGGER.debug("[Tier System] Assigned {} tier to {} (UUID: {}) - Health: {}/{}", 
             tier.getName().toUpperCase(), 
@@ -132,6 +147,64 @@ public class MobTierAssignmentHandler {
             mob.getUUID(),
             mob.getHealth(),
             mob.getMaxHealth());
+    }
+
+    private static void ensureGenericRangedWeaponGoal(Mob mob) {
+        if (!(mob instanceof Monster)) {
+            return;
+        }
+        if (mob instanceof RangedAttackMob || mob instanceof CrossbowAttackMob) {
+            return;
+        }
+
+        CompoundTag persistentData = ((PersistentDataHolder) mob).adaptivemobai$getPersistentData();
+        if (persistentData.getBoolean(GENERIC_RANGED_GOAL_TAG)) {
+            return;
+        }
+
+        // Priority 0 so it preempts vanilla melee goals when a ranged weapon is held.
+        ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(0, new GenericRangedWeaponGoal(mob, 1.0));
+        persistentData.putBoolean(GENERIC_RANGED_GOAL_TAG, true);
+    }
+
+    private static void applyUniversalWeaponRulesOnce(Mob mob) {
+        if (!(mob instanceof Enemy)) {
+            return;
+        }
+
+        try {
+            mob.setCanPickUpLoot(true);
+
+            CompoundTag persistentData = ((PersistentDataHolder) mob).adaptivemobai$getPersistentData();
+            if (persistentData.getBoolean(UNIVERSAL_WEAPONS_TAG)) {
+                return;
+            }
+
+            int roll = RANDOM.nextInt(4);
+            ItemStack weapon;
+            if (roll == 0) {
+                weapon = new ItemStack(Items.BOW);
+            } else if (roll == 1) {
+                weapon = new ItemStack(Items.CROSSBOW);
+            } else if (roll == 2) {
+                weapon = new ItemStack(Items.TRIDENT);
+            } else {
+                weapon = new ItemStack(Items.STONE_SWORD);
+            }
+
+            mob.setItemSlot(EquipmentSlot.MAINHAND, weapon);
+
+            persistentData.putBoolean(UNIVERSAL_WEAPONS_TAG, true);
+
+            // Also store in entity NBT so it shows up in F3 like the tier tags.
+            CompoundTag entityData = new CompoundTag();
+            mob.saveWithoutId(entityData);
+            entityData.putBoolean(UNIVERSAL_WEAPONS_TAG, true);
+            mob.load(entityData);
+        } catch (Exception e) {
+            LOGGER.debug("[Universal Weapons] Could not assign weapon to {}: {}",
+                mob.getType().toString(), e.getMessage());
+        }
     }
     
     /**

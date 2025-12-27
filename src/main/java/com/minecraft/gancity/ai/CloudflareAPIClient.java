@@ -203,6 +203,115 @@ public class CloudflareAPIClient {
             return false;
         }
     }
+
+    /**
+     * Submit a multi-action model for a single mobType in one upload.
+     *
+     * Rationale: the coordinator accepts only one upload per (serverId,mobType) per round,
+     * so sending each action separately can lock out richer models.
+     */
+    public boolean submitTacticsModel(String mobType, Map<String, ModelTactic> tacticsModel, boolean bootstrap) {
+        try {
+            if (mobType == null || mobType.isEmpty()) {
+                LOGGER.error("Cannot submit model with null/empty mobType");
+                return false;
+            }
+            if (tacticsModel == null || tacticsModel.isEmpty()) {
+                LOGGER.warn("Cannot submit empty model for {}", mobType);
+                return false;
+            }
+
+            JsonObject tactics = new JsonObject();
+            for (Map.Entry<String, ModelTactic> entry : tacticsModel.entrySet()) {
+                String action = entry.getKey();
+                ModelTactic tactic = entry.getValue();
+                if (action == null || action.isEmpty() || tactic == null) {
+                    continue;
+                }
+
+                if (!tactic.isValid()) {
+                    LOGGER.debug("Skipping invalid model tactic for {}: {}", mobType, action);
+                    continue;
+                }
+
+                JsonObject tacticData = new JsonObject();
+                tacticData.addProperty("avgReward", tactic.avgReward);
+                tacticData.addProperty("totalReward", tactic.totalReward);
+                tacticData.addProperty("count", tactic.count);
+                tacticData.addProperty("successCount", tactic.successCount);
+                tacticData.addProperty("failureCount", tactic.failureCount);
+                tacticData.addProperty("successRate", tactic.successRate);
+                tacticData.addProperty("weightedAvgReward", tactic.avgReward);
+                tacticData.addProperty("momentum", 0.0);
+                tacticData.addProperty("lastUpdate", System.currentTimeMillis());
+                tactics.add(action, tacticData);
+            }
+
+            if (tactics.size() == 0) {
+                LOGGER.warn("No valid tactics to submit for {}", mobType);
+                return false;
+            }
+
+            // Mark as dirty for potential batching/visibility
+            for (String action : tacticsModel.keySet()) {
+                if (action != null && !action.isEmpty()) {
+                    dirtyTracker.markDirty(mobType, action);
+                }
+            }
+
+            JsonObject payload = new JsonObject();
+            payload.addProperty("mobType", mobType);
+            payload.addProperty("serverId", serverId);
+            payload.addProperty("aggregationMethod", "FedAvgM");
+            payload.add("tactics", tactics);
+            payload.addProperty("timestamp", System.currentTimeMillis());
+            payload.addProperty("version", 1);
+            if (bootstrap) {
+                payload.addProperty("bootstrap", true);
+            }
+
+            String response = sendPostRequest("api/upload", gson.toJson(payload));
+            if (response != null) {
+                totalSubmissions++;
+                lastSuccessfulSync = System.currentTimeMillis();
+                return true;
+            }
+
+            failedSubmissions++;
+            return false;
+        } catch (Exception e) {
+            failedSubmissions++;
+            LOGGER.warn("Failed to submit tactics model: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    public static final class ModelTactic {
+        public final float avgReward;
+        public final float totalReward;
+        public final int count;
+        public final int successCount;
+        public final int failureCount;
+        public final float successRate;
+
+        public ModelTactic(float avgReward, float totalReward, int count, int successCount, int failureCount, float successRate) {
+            this.avgReward = avgReward;
+            this.totalReward = totalReward;
+            this.count = count;
+            this.successCount = successCount;
+            this.failureCount = failureCount;
+            this.successRate = successRate;
+        }
+
+        public boolean isValid() {
+            if (count <= 0) return false;
+            if (successCount < 0 || failureCount < 0) return false;
+            if (successCount + failureCount != count) return false;
+            if (Float.isNaN(avgReward) || Float.isInfinite(avgReward)) return false;
+            if (Float.isNaN(totalReward) || Float.isInfinite(totalReward)) return false;
+            return !(successRate < 0.0f || successRate > 1.0f);
+        }
+    }
     
     /**
      * Upload replay buffer samples to Cloudflare Worker for global pooling
