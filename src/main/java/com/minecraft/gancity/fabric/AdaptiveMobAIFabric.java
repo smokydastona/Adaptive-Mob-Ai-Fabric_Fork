@@ -12,6 +12,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.minecraft.commands.CommandSourceStack;
 
+
 import java.lang.reflect.Proxy;
 
 /**
@@ -35,8 +36,6 @@ public final class AdaptiveMobAIFabric implements ModInitializer {
             GANCityMod.onServerTick(server);
             MobTierAssignmentHandler.onServerTick(server);
         });
-
-        tryRegisterEntityLoad();
 
         UseEntityCallback.EVENT.register((player, world, hand, entity, hitResult) ->
                 MCADialogueHandler.onUseEntity(player, world, hand, entity));
@@ -80,64 +79,4 @@ public final class AdaptiveMobAIFabric implements ModInitializer {
         }
     }
 
-    private static void tryRegisterEntityLoad() {
-        try {
-            Class<?> loadCallbackInterface = Class.forName("net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents$Load");
-            Class<?> serverEntityEventsClass = Class.forName("net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents");
-            Object event = serverEntityEventsClass.getField("ENTITY_LOAD").get(null);
-
-            // Resolve types reflectively to avoid mapping name mismatches in dev tooling.
-            Class<?> entityClass = Class.forName("net.minecraft.world.entity.Entity");
-            Class<?> serverLevelClass = Class.forName("net.minecraft.server.level.ServerLevel");
-
-            Object listener = Proxy.newProxyInstance(
-                loadCallbackInterface.getClassLoader(),
-                new Class<?>[]{loadCallbackInterface},
-                (proxy, method, args) -> {
-                    if (args == null || args.length < 2) {
-                        return null;
-                    }
-
-                    Object a0 = args[0];
-                    Object a1 = args[1];
-
-                    Object entityObj = null;
-                    Object levelObj = null;
-
-                    // Common signature: (Entity, ServerLevel)
-                    if (a0 != null && a1 != null && entityClass.isInstance(a0) && serverLevelClass.isInstance(a1)) {
-                        entityObj = a0;
-                        levelObj = a1;
-                    }
-                    // Some environments may swap args: (ServerLevel, Entity)
-                    else if (a0 != null && a1 != null && serverLevelClass.isInstance(a0) && entityClass.isInstance(a1)) {
-                        entityObj = a1;
-                        levelObj = a0;
-                    }
-
-                    if (entityObj != null && levelObj != null) {
-                        try {
-                            MobTierAssignmentHandler.onEntityLoad(
-                                (net.minecraft.world.entity.Entity) entityObj,
-                                (net.minecraft.server.level.ServerLevel) levelObj
-                            );
-                        } catch (Throwable t) {
-                            // Never crash server entity loading; log at debug for diagnosis.
-                            GANCityMod.LOGGER.debug("ENTITY_LOAD handler threw: {}", t.toString());
-                        }
-                    }
-
-                    return null;
-                }
-            );
-
-            try {
-                event.getClass().getMethod("register", Object.class).invoke(event, listener);
-            } catch (NoSuchMethodException ignored) {
-                event.getClass().getMethod("register", loadCallbackInterface).invoke(event, listener);
-            }
-        } catch (Throwable t) {
-            GANCityMod.LOGGER.warn("ENTITY_LOAD hook failed (tier assignment may be limited): {}", t.toString());
-        }
-    }
 }

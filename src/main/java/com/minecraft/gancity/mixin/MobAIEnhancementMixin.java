@@ -1,7 +1,10 @@
 package com.minecraft.gancity.mixin;
 
 import com.minecraft.gancity.ai.GenericRangedWeaponGoal;
+import com.minecraft.gancity.event.MobTierAssignmentHandler;
 import com.minecraft.gancity.util.PersistentDataHolder;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
@@ -25,6 +28,7 @@ import java.util.EnumSet;
 public abstract class MobAIEnhancementMixin {
 
     private static final String GENERIC_RANGED_GOAL_TAG = "AdaptiveMobAI_GenericRangedGoal";
+    private static final String SPAWN_INIT_TAG = "AdaptiveMobAI_SpawnInit";
 
     // CRITICAL: Avoid any direct reference to mod-loader-specific classes in mixin
     // fields or imports. Mixin may load/verify mixin classes very early and linking
@@ -148,6 +152,37 @@ public abstract class MobAIEnhancementMixin {
             // CRITICAL: Catch all errors to prevent mixin from breaking early init
             // Log and continue - mob will just use vanilla AI
             System.err.println("[MCA AI Enhanced] MobAIEnhancementMixin failed (using vanilla AI): " + t);
+        }
+    }
+
+    /**
+     * Apply tier/loadout initialization once on the server.
+     *
+     * This replaces a brittle ServerEntityEvents.ENTITY_LOAD reflection hook which can fail under
+     * runtime remapping (intermediary) and prevent weapon loadouts from ever applying.
+     */
+    @Inject(method = "tick", at = @At("HEAD"))
+    private void adaptivemobai$onTickInit(CallbackInfo ci) {
+        try {
+            Mob mob = (Mob) (Object) this;
+            if (mob.level().isClientSide()) {
+                return;
+            }
+            if (!(mob.level() instanceof ServerLevel serverLevel)) {
+                return;
+            }
+
+            net.minecraft.nbt.CompoundTag persistent = ((PersistentDataHolder) mob).adaptivemobai$getPersistentData();
+            if (persistent.getBoolean(SPAWN_INIT_TAG)) {
+                return;
+            }
+
+            // Mark first to prevent repeated attempts if something goes wrong.
+            persistent.putBoolean(SPAWN_INIT_TAG, true);
+
+            MobTierAssignmentHandler.onEntityLoad((Entity) (Object) this, serverLevel);
+        } catch (Throwable ignored) {
+            // Never break ticking; mob will just use vanilla equipment/tier.
         }
     }
     
