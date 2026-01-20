@@ -3,11 +3,17 @@ package com.minecraft.gancity;
 import com.minecraft.gancity.ai.MobBehaviorAI;
 import com.minecraft.gancity.ai.VillagerDialogueAI;
 import com.minecraft.gancity.compat.ModCompatibility;
+import com.minecraft.gancity.config.PlayerMobLoadoutStore;
 import com.minecraft.gancity.mca.MCAIntegration;
 import com.mojang.logging.LogUtils;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
+
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 @SuppressWarnings({"null"})
 public class GANCityMod {
@@ -88,6 +94,8 @@ public class GANCityMod {
         LOGGER.info("MCA AI Enhanced - Initializing (Fabric)...");
 
         try {
+            ensureDefaultConfigFilesExist();
+
             // Configure DJL cache (safe - just system properties, no classloading)
             String gameDir = System.getProperty("user.dir");
             String djlCachePath = gameDir + "/libraries/ai.djl";
@@ -107,6 +115,29 @@ public class GANCityMod {
             }
         } catch (Exception e) {
             LOGGER.error("Failed to initialize MCA AI Enhanced: {}", e.getMessage(), e);
+        }
+    }
+
+    private static void ensureDefaultConfigFilesExist() {
+        try {
+            Path configDir = getConfigDir();
+            Files.createDirectories(configDir);
+
+            Path commonConfig = configDir.resolve(CONFIG_FILE_NAME);
+            if (!Files.exists(commonConfig)) {
+                try (InputStream in = GANCityMod.class.getClassLoader().getResourceAsStream(CONFIG_FILE_NAME)) {
+                    if (in == null) {
+                        LOGGER.warn("Default config resource {} was not found in the JAR", CONFIG_FILE_NAME);
+                    } else {
+                        Files.copy(in, commonConfig, StandardCopyOption.REPLACE_EXISTING);
+                        LOGGER.info("Created default config: {}", commonConfig.toAbsolutePath());
+                    }
+                }
+            }
+
+            PlayerMobLoadoutStore.ensureFileExists();
+        } catch (Exception e) {
+            LOGGER.warn("Failed to ensure default config files exist: {}", e.toString());
         }
     }
 
