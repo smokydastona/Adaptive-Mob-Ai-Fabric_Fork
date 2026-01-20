@@ -22,6 +22,7 @@ import net.minecraft.world.entity.monster.*;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.ProjectileWeaponItem;
 import org.slf4j.Logger;
 
 import java.util.Comparator;
@@ -252,7 +253,10 @@ public class MobTierAssignmentHandler {
         if (isIceAndFireLoaded()) {
             String entityId = entity.getType().toString();
             // Skip Ice and Fire entities (they have complex custom AI)
-            if (entityId.contains("iceandfire:")) {
+            // If no per-player override, fall back to global config per-mob loadouts.
+            if (weapon == null) {
+                weapon = GANCityMod.chooseConfiguredWeaponForMob(mobTypeId, RANDOM);
+            }
                 return false;
             }
         }
@@ -262,6 +266,13 @@ public class MobTierAssignmentHandler {
         
         return true;
     }
+                // If mob spawned with a bow/crossbow, optionally give configured arrows.
+                if (weapon.getItem() instanceof ProjectileWeaponItem) {
+                    ItemStack arrows = GANCityMod.getConfiguredArrowStackForMob(mobTypeId);
+                    if (!arrows.isEmpty() && mob.getItemBySlot(EquipmentSlot.OFFHAND).isEmpty()) {
+                        mob.setItemSlot(EquipmentSlot.OFFHAND, arrows);
+                    }
+                }
     
     /**
      * Apply stat modifiers based on tier

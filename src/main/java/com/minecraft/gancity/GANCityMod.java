@@ -6,14 +6,25 @@ import com.minecraft.gancity.compat.ModCompatibility;
 import com.minecraft.gancity.config.PlayerMobLoadoutStore;
 import com.minecraft.gancity.mca.MCAIntegration;
 import com.mojang.logging.LogUtils;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.slf4j.Logger;
 
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Random;
 
 @SuppressWarnings({"null"})
 public class GANCityMod {
@@ -56,6 +67,11 @@ public class GANCityMod {
     private static volatile boolean visualTierIndicators = true;
     private static volatile float expRateMultiplier = 1.0f;
     private static volatile boolean syncTiersWithFederation = true;
+
+    // Global (server-wide) mob weapon loadouts from config
+    private static volatile Map<String, List<String>> globalMobWeaponLoadouts = Map.of();
+    private static volatile String defaultBowArrowItemId = "minecraft:arrow";
+    private static volatile Map<String, String> bowArrowOverrides = Map.of();
     
     // Auto-save tracking (10 minutes = 12000 ticks)
     private static final int AUTO_SAVE_INTERVAL_TICKS = 12000;
@@ -374,12 +390,267 @@ public class GANCityMod {
                 expRateMultiplier = parseFloat(kv, "experienceRateMultiplier", 1.0f);
                 syncTiersWithFederation = parseBoolean(kv, "syncTiersWithFederation", true);
 
+                // Loadouts (list-of-strings)
+                globalMobWeaponLoadouts = parseMobWeaponLoadouts(parseStringList(kv, "mobWeaponLoadouts"), 5);
+                defaultBowArrowItemId = normalizeItemId(parseString(kv, "defaultBowArrowItem", "minecraft:arrow"), "minecraft:arrow", true);
+                bowArrowOverrides = parseKeyValueMap(parseStringList(kv, "mobBowArrowOverrides"));
+
                 configLoaded = true;
             } catch (Exception e) {
                 // Fail open with safe defaults (ON) so players have zero setup.
                 LOGGER.warn("Failed to load config; using built-in defaults: {}", e.getMessage());
                 configLoaded = true;
             }
+        }
+    }
+
+    public static ItemStack chooseConfiguredWeaponForMob(String mobTypeId, Random random) {
+        loadConfigIfNeeded();
+        if (mobTypeId == null || mobTypeId.isBlank()) {
+            return null;
+        }
+
+        List<String> options = globalMobWeaponLoadouts.get(mobTypeId);
+        if (options == null || options.isEmpty()) {
+            return null;
+        }
+
+        String selected = options.get(random.nextInt(options.size()));
+        if (selected == null) {
+            return null;
+        }
+
+        selected = selected.trim();
+        if (selected.isEmpty()) {
+            return null;
+        }
+
+        if (selected.equalsIgnoreCase("none")) {
+            return ItemStack.EMPTY;
+        }
+
+        ResourceLocation id = safeResourceLocation(selected);
+        if (id == null) {
+            return null;
+        }
+        Item item = BuiltInRegistries.ITEM.get(id);
+        if (item == null || item == Items.AIR) {
+            return null;
+        }
+        return new ItemStack(item);
+    }
+
+    public static ItemStack getConfiguredArrowStackForMob(String mobTypeId) {
+        loadConfigIfNeeded();
+
+        String arrowId = null;
+        if (mobTypeId != null && !mobTypeId.isBlank()) {
+            arrowId = bowArrowOverrides.get(mobTypeId);
+        }
+        if (arrowId == null || arrowId.isBlank()) {
+            arrowId = defaultBowArrowItemId;
+        }
+
+        arrowId = normalizeItemId(arrowId, "minecraft:arrow", true);
+        if (arrowId == null || arrowId.isBlank() || arrowId.equalsIgnoreCase("none")) {
+            return ItemStack.EMPTY;
+        }
+
+        ResourceLocation id = safeResourceLocation(arrowId);
+        if (id == null) {
+            return ItemStack.EMPTY;
+        }
+
+        Item item = BuiltInRegistries.ITEM.get(id);
+        if (item == null || item == Items.AIR) {
+            return ItemStack.EMPTY;
+        }
+
+        return new ItemStack(item, 64);
+    }
+
+    private static List<String> parseStringList(Map<String, String> kv, String key) {
+        String value = kv.get(key);
+        if (value == null) {
+            return List.of();
+        }
+
+        String v = value.trim();
+        if (v.isEmpty()) {
+            return List.of();
+        }
+
+        // Accept a single string value
+        if (!v.startsWith("[") || !v.endsWith("]")) {
+            String single = stripQuotes(v).trim();
+            return single.isEmpty() ? List.of() : List.of(single);
+        }
+
+        String inner = v.substring(1, v.length() - 1).trim();
+        if (inner.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> out = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        char quoteChar = 0;
+        for (int i = 0; i < inner.length(); i++) {
+            char c = inner.charAt(i);
+            if (inQuotes) {
+                if (c == quoteChar) {
+                    inQuotes = false;
+                } else {
+                    current.append(c);
+                }
+                continue;
+            }
+
+            if (c == '"' || c == '\'') {
+                inQuotes = true;
+                quoteChar = c;
+                continue;
+            }
+
+            if (c == ',') {
+                String token = stripQuotes(current.toString()).trim();
+                if (!token.isEmpty()) {
+                    out.add(token);
+                }
+                current.setLength(0);
+                continue;
+            }
+
+            current.append(c);
+        }
+
+        String token = stripQuotes(current.toString()).trim();
+        if (!token.isEmpty()) {
+            out.add(token);
+        }
+
+        return out;
+    }
+
+    private static Map<String, List<String>> parseMobWeaponLoadouts(List<? extends String> rawEntries, int maxWeaponsPerMob) {
+        if (rawEntries == null || rawEntries.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, List<String>> result = new HashMap<>();
+        for (String entry : rawEntries) {
+            if (entry == null) {
+                continue;
+            }
+            String trimmed = entry.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+
+            int eq = trimmed.indexOf('=');
+            if (eq <= 0 || eq >= trimmed.length() - 1) {
+                continue;
+            }
+
+            String mobId = trimmed.substring(0, eq).trim();
+            String weaponsCsv = trimmed.substring(eq + 1).trim();
+            if (mobId.isEmpty() || weaponsCsv.isEmpty()) {
+                continue;
+            }
+
+            String[] parts = weaponsCsv.split(",");
+            List<String> weapons = new ArrayList<>();
+            for (String part : parts) {
+                if (weapons.size() >= maxWeaponsPerMob) {
+                    break;
+                }
+                if (part == null) {
+                    continue;
+                }
+                String weaponId = part.trim();
+                if (weaponId.isEmpty()) {
+                    continue;
+                }
+
+                if (weaponId.equalsIgnoreCase("none")) {
+                    weapons.add("none");
+                    continue;
+                }
+
+                String normalized = normalizeItemId(weaponId, null, false);
+                if (normalized != null) {
+                    weapons.add(normalized);
+                }
+            }
+
+            if (!weapons.isEmpty()) {
+                result.put(mobId, Collections.unmodifiableList(weapons));
+            }
+        }
+
+        return result.isEmpty() ? Map.of() : Collections.unmodifiableMap(result);
+    }
+
+    private static Map<String, String> parseKeyValueMap(List<? extends String> rawEntries) {
+        if (rawEntries == null || rawEntries.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, String> result = new HashMap<>();
+        for (String entry : rawEntries) {
+            if (entry == null) {
+                continue;
+            }
+            String trimmed = entry.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+
+            int eq = trimmed.indexOf('=');
+            if (eq <= 0 || eq >= trimmed.length() - 1) {
+                continue;
+            }
+            String key = trimmed.substring(0, eq).trim();
+            String value = trimmed.substring(eq + 1).trim();
+            if (key.isEmpty() || value.isEmpty()) {
+                continue;
+            }
+
+            String normalizedValue = normalizeItemId(value, null, true);
+            if (normalizedValue != null) {
+                result.put(key, normalizedValue);
+            }
+        }
+
+        return result.isEmpty() ? Map.of() : Collections.unmodifiableMap(result);
+    }
+
+    private static String normalizeItemId(String raw, String fallback, boolean allowNone) {
+        if (raw == null) {
+            return fallback;
+        }
+        String value = raw.trim();
+        if (value.isEmpty()) {
+            return fallback;
+        }
+
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (allowNone && lower.equals("none")) {
+            return "none";
+        }
+
+        if (!lower.contains(":")) {
+            lower = "minecraft:" + lower;
+        }
+
+        return safeResourceLocation(lower) != null ? lower : fallback;
+    }
+
+    private static ResourceLocation safeResourceLocation(String raw) {
+        try {
+            return new ResourceLocation(raw);
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
