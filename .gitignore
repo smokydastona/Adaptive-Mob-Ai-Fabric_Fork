@@ -4,6 +4,9 @@ image_at_*
 .vs
 .vscode
 
+# Gradle build outputs
+.gradle/
+
 # Node dependencies
 node_modules/
 

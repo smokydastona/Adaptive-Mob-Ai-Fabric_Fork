@@ -90,7 +90,8 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Adaptive-Mob-Ai-Fabric-${{ steps.version.outputs.VERSION }}
-        path: build/libs/Adaptive-Mob-Ai-Fabric-${{ steps.version.outputs.VERSION }}.jar
+        path: build/libs/*.jar
+        if-no-files-found: error
         retention-days: 90
     
     - name: Create Release
@@ -98,7 +99,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          build/libs/Adaptive-Mob-Ai-Fabric-${{ steps.version.outputs.VERSION }}.jar
+          build/libs/*.jar
         generate_release_notes: true
         draft: false
         prerelease: false
