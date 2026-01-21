@@ -392,13 +392,13 @@ public final class PlayerMobLoadoutStore {
     public static ItemStack defaultWeapon(Random random) {
         int roll = random.nextInt(4);
         if (roll == 0) {
-            return new ItemStack(Items.BOW);
+            return Items.BOW.getDefaultInstance();
         } else if (roll == 1) {
-            return new ItemStack(Items.CROSSBOW);
+            return Items.CROSSBOW.getDefaultInstance();
         } else if (roll == 2) {
-            return new ItemStack(Items.TRIDENT);
+            return Items.TRIDENT.getDefaultInstance();
         }
-        return new ItemStack(Items.STONE_SWORD);
+        return Items.STONE_SWORD.getDefaultInstance();
     }
 
     private static List<String> listFor(PlayerLoadout loadout, String category) {
@@ -413,21 +413,6 @@ public final class PlayerMobLoadoutStore {
 
     private static List<String> safeList(List<String> list) {
         return list == null ? java.util.Collections.emptyList() : list;
-    }
-
-    private static ItemStack pickOne(List<String> ids, Random random) {
-        if (ids == null || ids.isEmpty()) {
-            return null;
-        }
-
-        for (int i = 0; i < Math.min(ids.size(), 8); i++) {
-            String id = ids.get(random.nextInt(ids.size()));
-            Item item = resolveItem(id);
-            if (item != null) {
-                return new ItemStack(item);
-            }
-        }
-        return null;
     }
 
     private static void migrateLegacyListsIfPresent(PlayerLoadout loadout) {

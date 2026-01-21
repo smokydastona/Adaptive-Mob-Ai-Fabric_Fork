@@ -9,6 +9,8 @@ import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.item.Item;
 
 import java.io.IOException;
@@ -33,24 +35,6 @@ import java.util.stream.Collectors;
  */
 public final class AdaptiveMobAiLoadoutConfigScreen extends Screen {
     private static final String CONFIG_FILE_NAME = "adaptivemobai-common.toml";
-
-    private static final List<String> DEFAULT_COMBAT_MOBS = List.of(
-        "minecraft:zombie",
-        "minecraft:zombie_villager",
-        "minecraft:husk",
-        "minecraft:drowned",
-        "minecraft:skeleton",
-        "minecraft:stray",
-        "minecraft:wither_skeleton",
-        "minecraft:pillager",
-        "minecraft:vindicator",
-        "minecraft:evoker",
-        "minecraft:witch",
-        "minecraft:piglin",
-        "minecraft:piglin_brute",
-        "minecraft:zombified_piglin",
-        "minecraft:illusioner"
-    );
 
     private final Screen parent;
 
@@ -392,18 +376,39 @@ public final class AdaptiveMobAiLoadoutConfigScreen extends Screen {
 
     private static List<String> buildMobIdList(Set<String> configuredMobIds) {
         try {
-            Set<String> allow = new HashSet<>(DEFAULT_COMBAT_MOBS);
-            if (configuredMobIds != null) {
-                allow.addAll(configuredMobIds);
-            }
+            Set<String> configured = configuredMobIds == null ? Set.of() : new HashSet<>(configuredMobIds);
+            boolean iceAndFireLoaded = isModLoaded("iceandfire");
 
+            // Show all vanilla + modded hostile mobs by default, plus any mobs already configured in the file.
             return net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.keySet().stream()
-                .map(ResourceLocation::toString)
-                .filter(allow::contains)
                 .sorted()
+                .filter(key -> {
+                    String id = key.toString();
+                    if (configured.contains(id)) {
+                        return true;
+                    }
+                    if (iceAndFireLoaded && id.startsWith("iceandfire:")) {
+                        return false;
+                    }
+
+                    EntityType<?> type = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.get(key);
+                    if (type == null) {
+                        return false;
+                    }
+                    return type.getCategory() == MobCategory.MONSTER;
+                })
+                .map(ResourceLocation::toString)
                 .collect(Collectors.toList());
         } catch (Throwable ignored) {
             return List.of();
+        }
+    }
+
+    private static boolean isModLoaded(String modId) {
+        try {
+            return FabricLoader.getInstance().isModLoaded(modId);
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
