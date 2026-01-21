@@ -190,6 +190,11 @@ public class MobTierAssignmentHandler {
             String mobTypeId = getMobTypeId(mob);
             ItemStack weapon = PlayerMobLoadoutStore.chooseWeaponFor(nearest, mobTypeId, RANDOM);
 
+            // If no per-player override, fall back to global config per-mob loadouts.
+            if (weapon == null) {
+                weapon = GANCityMod.chooseConfiguredWeaponForMob(mobTypeId, RANDOM);
+            }
+
             if (weapon == null) {
                 weapon = PlayerMobLoadoutStore.defaultWeapon(RANDOM);
                 mob.setItemSlot(EquipmentSlot.MAINHAND, weapon);
@@ -197,6 +202,14 @@ public class MobTierAssignmentHandler {
                 mob.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
             } else {
                 mob.setItemSlot(EquipmentSlot.MAINHAND, weapon);
+            }
+
+            // If mob spawned with a bow/crossbow, optionally give configured arrows.
+            if (weapon != null && !weapon.isEmpty() && weapon.getItem() instanceof ProjectileWeaponItem) {
+                ItemStack arrows = GANCityMod.getConfiguredArrowStackForMob(mobTypeId);
+                if (!arrows.isEmpty() && mob.getItemBySlot(EquipmentSlot.OFFHAND).isEmpty()) {
+                    mob.setItemSlot(EquipmentSlot.OFFHAND, arrows);
+                }
             }
 
             persistentData.putBoolean(UNIVERSAL_WEAPONS_TAG, true);
@@ -253,10 +266,7 @@ public class MobTierAssignmentHandler {
         if (isIceAndFireLoaded()) {
             String entityId = entity.getType().toString();
             // Skip Ice and Fire entities (they have complex custom AI)
-            // If no per-player override, fall back to global config per-mob loadouts.
-            if (weapon == null) {
-                weapon = GANCityMod.chooseConfiguredWeaponForMob(mobTypeId, RANDOM);
-            }
+            if (entityId.contains("iceandfire:")) {
                 return false;
             }
         }
@@ -266,13 +276,6 @@ public class MobTierAssignmentHandler {
         
         return true;
     }
-                // If mob spawned with a bow/crossbow, optionally give configured arrows.
-                if (weapon.getItem() instanceof ProjectileWeaponItem) {
-                    ItemStack arrows = GANCityMod.getConfiguredArrowStackForMob(mobTypeId);
-                    if (!arrows.isEmpty() && mob.getItemBySlot(EquipmentSlot.OFFHAND).isEmpty()) {
-                        mob.setItemSlot(EquipmentSlot.OFFHAND, arrows);
-                    }
-                }
     
     /**
      * Apply stat modifiers based on tier
