@@ -15,6 +15,9 @@
   "entrypoints": {
     "main": [
       "com.minecraft.gancity.fabric.AdaptiveMobAIFabric"
+    ],
+    "modmenu": [
+      "com.minecraft.gancity.fabric.ModMenuIntegration"
     ]
   },
   "mixins": [

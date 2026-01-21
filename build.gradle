@@ -24,6 +24,7 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
     maven { url 'https://maven.fabricmc.net/' }
+    maven { url 'https://maven.terraformersmc.com/releases/' }
     maven {
         url 'https://repo.spongepowered.org/repository/maven-public/'
     }
@@ -38,6 +39,10 @@ dependencies {
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    // Optional config UI integration via Mod Menu (players can edit loadouts easily).
+    // Not bundled; Mod Menu must be installed by the user for the button to appear.
+    modCompileOnly "com.terraformersmc:modmenu:7.2.2"
 
     // Helps IDE/static analysis resolve Fabric symbols (some tooling ignores Loom configurations)
     compileOnly "net.fabricmc:fabric-loader:${project.loader_version}"
