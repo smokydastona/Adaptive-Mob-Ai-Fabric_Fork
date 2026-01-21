@@ -404,6 +404,16 @@ public class GANCityMod {
         }
     }
 
+    /**
+     * Force a re-read of the TOML on disk so in-game config UI changes take effect immediately.
+     */
+    public static void reloadConfigFromDisk() {
+        synchronized (GANCityMod.class) {
+            configLoaded = false;
+        }
+        loadConfigIfNeeded();
+    }
+
     public static ItemStack chooseConfiguredWeaponForMob(String mobTypeId, Random random) {
         loadConfigIfNeeded();
         if (mobTypeId == null || mobTypeId.isBlank()) {

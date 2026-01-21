@@ -289,6 +289,8 @@ public final class AdaptiveMobAiLoadoutConfigScreen extends Screen {
     private void saveAndClose() {
         try {
             writeConfigFile();
+            // Apply immediately (no restart required)
+            GANCityMod.reloadConfigFromDisk();
         } catch (Exception e) {
             GANCityMod.LOGGER.warn("Failed to write loadout config: {}", e.toString());
         }
