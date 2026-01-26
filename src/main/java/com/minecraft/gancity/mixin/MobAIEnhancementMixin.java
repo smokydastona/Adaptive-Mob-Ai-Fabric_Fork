@@ -302,7 +302,12 @@ public abstract class MobAIEnhancementMixin {
                     startSeqMethod.invoke(behaviorAI, mobId);
                     
                     // Start tactical episode tracking (NEW SYSTEM)
-                    String mobType = mob.getType().getDescription().getString().toLowerCase();
+                    String mobType;
+                    try {
+                        mobType = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
+                    } catch (Exception ex) {
+                        mobType = mob.getType().getDescription().getString().toLowerCase();
+                    }
                     java.lang.reflect.Method startEpisodeMethod = behaviorAI.getClass().getMethod("startCombatEpisode", String.class, String.class, int.class);
                     startEpisodeMethod.invoke(behaviorAI, mobId, mobType, mob.tickCount);
                 } catch (Exception e) {
@@ -321,7 +326,12 @@ public abstract class MobAIEnhancementMixin {
                 
                 try {
                     // End sequence tracking and submit to Cloudflare (old system)
-                    String mobType = mob.getType().getDescription().getString().toLowerCase();
+                    String mobType;
+                    try {
+                        mobType = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
+                    } catch (Exception ex) {
+                        mobType = mob.getType().getDescription().getString().toLowerCase();
+                    }
                     String outcome = determineOutcome();
                     java.lang.reflect.Method endSeqMethod = behaviorAI.getClass().getMethod("endCombatSequence", String.class, String.class, String.class);
                     endSeqMethod.invoke(behaviorAI, mobId, mobType, outcome);
@@ -469,7 +479,11 @@ public abstract class MobAIEnhancementMixin {
                     mobType = persistentProfile;
                 } else {
                     // Regular mobs use class-based type
-                    mobType = mob.getClass().getSimpleName().toLowerCase();
+                    try {
+                        mobType = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
+                    } catch (Exception ex) {
+                        mobType = mob.getClass().getSimpleName().toLowerCase();
+                    }
                 }
                 
                 // AI selects action with contextual difficulty (pass mob entity for environmental context)

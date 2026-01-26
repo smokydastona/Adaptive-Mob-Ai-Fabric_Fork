@@ -3,6 +3,7 @@ package com.minecraft.gancity;
 import com.minecraft.gancity.ai.MobBehaviorAI;
 import com.minecraft.gancity.ai.VillagerDialogueAI;
 import com.minecraft.gancity.compat.ModCompatibility;
+import com.minecraft.gancity.config.ModdedMobTacticMappingStore;
 import com.minecraft.gancity.config.PlayerMobLoadoutStore;
 import com.minecraft.gancity.mca.MCAIntegration;
 import com.mojang.logging.LogUtils;
@@ -152,6 +153,7 @@ public class GANCityMod {
             }
 
             PlayerMobLoadoutStore.ensureFileExists();
+            ModdedMobTacticMappingStore.ensureFileExists();
         } catch (Exception e) {
             LOGGER.warn("Failed to ensure default config files exist: {}", e.toString());
         }
