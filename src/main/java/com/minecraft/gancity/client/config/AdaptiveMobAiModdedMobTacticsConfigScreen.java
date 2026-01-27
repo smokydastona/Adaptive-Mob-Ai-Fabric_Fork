@@ -47,6 +47,11 @@ public final class AdaptiveMobAiModdedMobTacticsConfigScreen extends Screen {
     // Local editable copy (write on Save)
     private ModdedMobTacticMappingStore.Config working;
 
+    private boolean loadedFromDisk;
+
+    private Button defaultHostileButton;
+    private Button defaultPassiveButton;
+
     private List<String> allEntityIds = List.of();
     private List<String> profileKeys = List.of();
     private final Map<String, String> suggestedCache = new HashMap<>();
@@ -58,10 +63,15 @@ public final class AdaptiveMobAiModdedMobTacticsConfigScreen extends Screen {
 
     @Override
     protected void init() {
-        // Load config once per screen open
-        ModdedMobTacticMappingStore.loadIfNeeded();
-        ModdedMobTacticMappingStore.Config cfg = ModdedMobTacticMappingStore.get();
-        working = deepCopy(cfg);
+        // Load config once per screen open.
+        // Important: returning from a selector screen triggers init() again, and we must not
+        // overwrite in-memory edits with a fresh copy from disk.
+        if (!loadedFromDisk || working == null) {
+            ModdedMobTacticMappingStore.loadIfNeeded();
+            ModdedMobTacticMappingStore.Config cfg = ModdedMobTacticMappingStore.get();
+            working = deepCopy(cfg);
+            loadedFromDisk = true;
+        }
 
         profileKeys = loadProfileKeyOptions();
         allEntityIds = buildEntityIdList(showVanilla);
@@ -118,11 +128,11 @@ public final class AdaptiveMobAiModdedMobTacticsConfigScreen extends Screen {
         }).bounds(rightX, rowY + (rowH + gap) * 4, fieldW, rowH).build());
 
         // Default profiles (simple global fallbacks)
-        addRenderableWidget(Button.builder(Component.literal("Default Hostile: " + working.defaultHostileProfile), b -> {
+        defaultHostileButton = addRenderableWidget(Button.builder(Component.literal("Default Hostile: " + working.defaultHostileProfile), b -> {
             openProfilePickerForDefault(true);
         }).bounds(rightX, rowY + (rowH + gap) * 5, fieldW, rowH).build());
 
-        addRenderableWidget(Button.builder(Component.literal("Default Passive: " + working.defaultPassiveProfile), b -> {
+        defaultPassiveButton = addRenderableWidget(Button.builder(Component.literal("Default Passive: " + working.defaultPassiveProfile), b -> {
             openProfilePickerForDefault(false);
         }).bounds(rightX, rowY + (rowH + gap) * 6, fieldW, rowH).build());
 
@@ -135,9 +145,15 @@ public final class AdaptiveMobAiModdedMobTacticsConfigScreen extends Screen {
             .bounds(rightX + 110, bottomButtonsY, 100, 20)
             .build());
 
-        // Initial selection
-        if (!allEntityIds.isEmpty()) {
-            setSelectedEntity(allEntityIds.get(0));
+        // Initial selection (preserve existing selection if possible)
+        if (selectedEntityId == null) {
+            if (!allEntityIds.isEmpty()) {
+                setSelectedEntity(allEntityIds.get(0));
+            }
+        } else if (!allEntityIds.contains(selectedEntityId)) {
+            if (!allEntityIds.isEmpty()) {
+                setSelectedEntity(allEntityIds.get(0));
+            }
         }
         refreshList();
         refreshRightPanel();
@@ -202,6 +218,13 @@ public final class AdaptiveMobAiModdedMobTacticsConfigScreen extends Screen {
     private void refreshRightPanel() {
         toggleEnabled.setMessage(Component.literal("Mapping: " + (working.enabled ? "ON" : "OFF")));
         toggleAuto.setMessage(Component.literal("Auto-Assign: " + (working.autoAssignEnabled ? "ON" : "OFF")));
+
+        if (defaultHostileButton != null) {
+            defaultHostileButton.setMessage(Component.literal("Default Hostile: " + working.defaultHostileProfile));
+        }
+        if (defaultPassiveButton != null) {
+            defaultPassiveButton.setMessage(Component.literal("Default Passive: " + working.defaultPassiveProfile));
+        }
 
         boolean hasSelection = selectedEntityId != null;
         setOverride.active = hasSelection;
@@ -270,8 +293,8 @@ public final class AdaptiveMobAiModdedMobTacticsConfigScreen extends Screen {
                 } else {
                     working.defaultPassiveProfile = normalized;
                 }
-                // Re-init to refresh button text for defaults
-                this.init();
+                // Refresh without re-init (re-init would wipe unsaved edits)
+                refreshRightPanel();
             }
         ));
     }
