@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Per-mob AI overrides: new config UI page to force specific entities (vanilla or modded) to keep default/vanilla AI (skips goal injection)
+	- Persisted in `config/adaptivemobai-per-mob-ai.json`
+
 ## 1.0.11
 
 - Parity (Forge): Allow hostile mobs to spawn with and use bows/crossbows/tridents (universal weapon loadouts).

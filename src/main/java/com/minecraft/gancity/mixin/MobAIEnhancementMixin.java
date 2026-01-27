@@ -1,8 +1,10 @@
 package com.minecraft.gancity.mixin;
 
 import com.minecraft.gancity.ai.GenericRangedWeaponGoal;
+import com.minecraft.gancity.config.PerMobAiDefaultsStore;
 import com.minecraft.gancity.event.MobTierAssignmentHandler;
 import com.minecraft.gancity.util.PersistentDataHolder;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -89,10 +91,23 @@ public abstract class MobAIEnhancementMixin {
     private void onRegisterGoals(CallbackInfo ci) {
         try {
             Mob mob = (Mob)(Object)this;
+
+            String entityTypeId = null;
+            try {
+                entityTypeId = BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
+            } catch (Throwable ignored) {
+                // If we can't resolve a stable id, fall back to applying enhancements.
+            }
+
+            // Per-mob override: allow forcing default/vanilla AI for specific entities.
+            // This skips both the ML-driven goals and the generic ranged goal injection.
+            if (entityTypeId != null && !PerMobAiDefaultsStore.isAiEnabledFor(entityTypeId)) {
+                return;
+            }
             
             // Ice and Fire compatibility - skip their mobs entirely
             if (isIceAndFireLoaded()) {
-                String entityId = mob.getType().toString();
+                String entityId = entityTypeId != null ? entityTypeId : mob.getType().toString();
                 if (entityId.contains("iceandfire:")) {
                     return; // Don't modify Ice and Fire entity AI
                 }
