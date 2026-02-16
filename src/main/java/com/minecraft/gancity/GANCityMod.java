@@ -13,6 +13,8 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -107,6 +109,8 @@ public class GANCityMod {
     private static volatile java.util.Set<String> infectionHiveMindMobIds = java.util.Set.of();
 
     private static final String INFECTION_HIVE_NEXT_BROADCAST_TICK_TAG = "adaptivemobai_infection_hive_next";
+    private static final String INFECTION_HIVE_NEXT_DAMAGE_HAPTIC_TICK_TAG = "adaptivemobai_infection_hive_next_damage_haptic";
+    private static final int INFECTION_HIVE_DAMAGE_HAPTIC_COOLDOWN_TICKS = 10;
     
     // Auto-save tracking (10 minutes = 12000 ticks)
     private static final int AUTO_SAVE_INTERVAL_TICKS = 12000;
@@ -581,6 +585,50 @@ public class GANCityMod {
                 // Never break gameplay for a compatibility feature.
             }
         }
+    }
+
+    public static void tryInfectionHiveMindDamageHaptic(Mob caller, float amount) {
+        if (caller == null || !caller.isAlive()) {
+            return;
+        }
+        if (caller.level().isClientSide()) {
+            return;
+        }
+        if (amount <= 0.0f) {
+            return;
+        }
+
+        loadConfigIfNeeded();
+        if (!infectionHiveMindEnabled) {
+            return;
+        }
+        if (!isInfectionHiveMindMob(caller.getType())) {
+            return;
+        }
+        if (!(caller instanceof PersistentDataHolder pdh)) {
+            return;
+        }
+
+        CompoundTag persistentData = pdh.adaptivemobai$getPersistentData();
+        int nextAllowedTick = persistentData.getInt(INFECTION_HIVE_NEXT_DAMAGE_HAPTIC_TICK_TAG);
+        if (caller.tickCount < nextAllowedTick) {
+            return;
+        }
+        persistentData.putInt(
+            INFECTION_HIVE_NEXT_DAMAGE_HAPTIC_TICK_TAG,
+            caller.tickCount + INFECTION_HIVE_DAMAGE_HAPTIC_COOLDOWN_TICKS
+        );
+
+        caller.level().playSound(
+            null,
+            caller.getX(),
+            caller.getY(),
+            caller.getZ(),
+            SoundEvents.SCULK_SENSOR_CLICKING,
+            SoundSource.HOSTILE,
+            0.6F,
+            1.0F
+        );
     }
 
     /**
