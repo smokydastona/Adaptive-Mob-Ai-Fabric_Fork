@@ -209,6 +209,7 @@ public final class AdaptiveMobAiLoadoutConfigScreen extends Screen {
         MobLoadout mobLoadout = loadouts.computeIfAbsent(selectedMobId, k -> MobLoadout.empty());
         List<String> options = new ArrayList<>();
         options.add("(empty)");
+        options.add("default");
         options.add("none");
         options.addAll(allWeaponItemIds);
 
@@ -363,6 +364,9 @@ public final class AdaptiveMobAiLoadoutConfigScreen extends Screen {
         }
         if (s.equalsIgnoreCase("(empty)") || s.equalsIgnoreCase("(default)")) {
             return "";
+        }
+        if (s.equalsIgnoreCase("default") || s.equalsIgnoreCase("preserve")) {
+            return "default";
         }
         if (s.equalsIgnoreCase("none")) {
             return "none";
