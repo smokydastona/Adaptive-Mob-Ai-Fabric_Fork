@@ -178,6 +178,12 @@ public class MobTierAssignmentHandler {
             return;
         }
 
+        // Infection / hive-mind compatibility: optionally preserve equipment so infection mods (or other gear mods)
+        // can fully control loadouts for infected mobs.
+        if (GANCityMod.shouldPreserveEquipmentForInfectionMobs(mob.getType())) {
+            return;
+        }
+
         try {
             mob.setCanPickUpLoot(true);
 

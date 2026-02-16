@@ -71,6 +71,37 @@
 		# mobBowArrowOverrides = ["minecraft:skeleton=minecraft:spectral_arrow"]
 		mobBowArrowOverrides = []
 
+[compatibility]
+	# === Compatibility Settings ===
+
+	[compatibility.infection_hive_mind]
+		# Enable lightweight compatibility for infection-style mods.
+		# When enabled, "infected" mobs can share targets with nearby infected mobs (hive mind feel).
+		infectionHiveMindEnabled = true
+
+		# Non-invasive mode (recommended): infected mobs are NOT modified by Adaptive Mob AI's goal injections.
+		# This helps avoid conflicts with infection mods' custom AI.
+		infectionHiveMindNonInvasive = true
+
+		# Preserve equipment for infected mobs (recommended): this mod will not assign weapons to infected mobs.
+		# Useful when infection mods (or other gear mods) control equipment, including modded/NBT items.
+		infectionHiveMindPreserveEquipment = true
+
+		# Broadcast radius for hive-mind target sharing (blocks)
+		infectionHiveMindRangeBlocks = 32
+		# Minimum ticks between broadcasts per mob (20 ticks = 1 second)
+		infectionHiveMindCooldownTicks = 40
+		# Max number of nearby allies to update per broadcast
+		infectionHiveMindMaxAllies = 6
+		# If true, only assign targets to allies that currently have no target
+		infectionHiveMindOnlyIfAllyHasNoTarget = true
+
+		# Which mobs count as "infected" (two options):
+		# 1) Namespaces (mod ids) - most convenient
+		infectionHiveMindMobNamespaces = ["srparasites", "sculkhorde", "sculk_horde", "spore", "haloflood"]
+		# 2) Explicit entity ids (resource locations)
+		infectionHiveMindMobIds = []
+
 [mob_behaviors]
 	# === Individual Mob AI Toggles ===
 	

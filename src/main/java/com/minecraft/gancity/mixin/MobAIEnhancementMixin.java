@@ -1,6 +1,8 @@
 package com.minecraft.gancity.mixin;
 
+import com.minecraft.gancity.GANCityMod;
 import com.minecraft.gancity.ai.GenericRangedWeaponGoal;
+import com.minecraft.gancity.compat.InfectionHiveMindGoal;
 import com.minecraft.gancity.config.PerMobAiDefaultsStore;
 import com.minecraft.gancity.event.MobTierAssignmentHandler;
 import com.minecraft.gancity.util.PersistentDataHolder;
@@ -111,6 +113,15 @@ public abstract class MobAIEnhancementMixin {
                 if (entityId.contains("iceandfire:")) {
                     return; // Don't modify Ice and Fire entity AI
                 }
+            }
+
+            // Infection / hive-mind compatibility: for infected mobs, keep our changes non-invasive.
+            // We only add a lightweight target-broadcast goal.
+            if (GANCityMod.shouldInfectionHiveMindBeNonInvasive() && GANCityMod.isInfectionHiveMindMob(mob.getType())) {
+                if (mob instanceof Monster) {
+                    ((MobGoalSelectorAccessor) mob).adaptivemobai$getGoalSelector().addGoal(8, new InfectionHiveMindGoal(mob));
+                }
+                return;
             }
 
             // Parity with Forge: ensure mobs can actually use the ranged weapon they are holding

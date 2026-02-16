@@ -7,13 +7,19 @@ import com.minecraft.gancity.config.ModdedMobTacticMappingStore;
 import com.minecraft.gancity.config.PerMobAiDefaultsStore;
 import com.minecraft.gancity.config.PlayerMobLoadoutStore;
 import com.minecraft.gancity.mca.MCAIntegration;
+import com.minecraft.gancity.util.PersistentDataHolder;
 import com.mojang.logging.LogUtils;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.AABB;
 import org.slf4j.Logger;
 
 import java.io.InputStream;
@@ -74,6 +80,28 @@ public class GANCityMod {
     private static volatile Map<String, List<String>> globalMobWeaponLoadouts = Map.of();
     private static volatile String defaultBowArrowItemId = "minecraft:arrow";
     private static volatile Map<String, String> bowArrowOverrides = Map.of();
+
+    // =====================================================
+    // Infection / Hive-mind compatibility (configurable)
+    // =====================================================
+    private static volatile boolean infectionHiveMindEnabled = true;
+    private static volatile boolean infectionHiveMindNonInvasive = true;
+    private static volatile boolean infectionHiveMindPreserveEquipment = true;
+    private static volatile int infectionHiveMindRangeBlocks = 32;
+    private static volatile int infectionHiveMindCooldownTicks = 40;
+    private static volatile int infectionHiveMindMaxAllies = 6;
+    private static volatile boolean infectionHiveMindOnlyIfAllyHasNoTarget = true;
+
+    private static volatile java.util.Set<String> infectionHiveMindNamespaces = java.util.Set.of(
+        "srparasites",
+        "sculkhorde",
+        "sculk_horde",
+        "spore",
+        "haloflood"
+    );
+    private static volatile java.util.Set<String> infectionHiveMindMobIds = java.util.Set.of();
+
+    private static final String INFECTION_HIVE_NEXT_BROADCAST_TICK_TAG = "adaptivemobai_infection_hive_next";
     
     // Auto-save tracking (10 minutes = 12000 ticks)
     private static final int AUTO_SAVE_INTERVAL_TICKS = 12000;
@@ -399,11 +427,147 @@ public class GANCityMod {
                 defaultBowArrowItemId = normalizeItemId(parseString(kv, "defaultBowArrowItem", "minecraft:arrow"), "minecraft:arrow", true);
                 bowArrowOverrides = parseKeyValueMap(parseStringList(kv, "mobBowArrowOverrides"));
 
+                // Infection / hive mind compatibility
+                infectionHiveMindEnabled = parseBoolean(kv, "infectionHiveMindEnabled", true);
+                infectionHiveMindNonInvasive = parseBoolean(kv, "infectionHiveMindNonInvasive", true);
+                infectionHiveMindPreserveEquipment = parseBoolean(kv, "infectionHiveMindPreserveEquipment", true);
+                infectionHiveMindRangeBlocks = parseInt(kv, "infectionHiveMindRangeBlocks", 32);
+                infectionHiveMindCooldownTicks = parseInt(kv, "infectionHiveMindCooldownTicks", 40);
+                infectionHiveMindMaxAllies = parseInt(kv, "infectionHiveMindMaxAllies", 6);
+                infectionHiveMindOnlyIfAllyHasNoTarget = parseBoolean(kv, "infectionHiveMindOnlyIfAllyHasNoTarget", true);
+
+                infectionHiveMindNamespaces = normalizeLowercaseSet(parseStringList(kv, "infectionHiveMindMobNamespaces"));
+                infectionHiveMindMobIds = normalizeLowercaseSet(parseStringList(kv, "infectionHiveMindMobIds"));
+
                 configLoaded = true;
             } catch (Exception e) {
                 // Fail open with safe defaults (ON) so players have zero setup.
                 LOGGER.warn("Failed to load config; using built-in defaults: {}", e.getMessage());
                 configLoaded = true;
+            }
+        }
+    }
+
+    private static java.util.Set<String> normalizeLowercaseSet(List<String> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return java.util.Set.of();
+        }
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (String s : raw) {
+            if (s == null) {
+                continue;
+            }
+            String v = s.trim().toLowerCase(Locale.ROOT);
+            if (!v.isBlank()) {
+                out.add(v);
+            }
+        }
+        return java.util.Collections.unmodifiableSet(out);
+    }
+
+    public static boolean isInfectionHiveMindEnabled() {
+        loadConfigIfNeeded();
+        return infectionHiveMindEnabled;
+    }
+
+    public static boolean shouldInfectionHiveMindBeNonInvasive() {
+        loadConfigIfNeeded();
+        return infectionHiveMindEnabled && infectionHiveMindNonInvasive;
+    }
+
+    public static boolean shouldPreserveEquipmentForInfectionMobs(EntityType<?> entityType) {
+        loadConfigIfNeeded();
+        return infectionHiveMindEnabled && infectionHiveMindPreserveEquipment && isInfectionHiveMindMob(entityType);
+    }
+
+    public static boolean isInfectionHiveMindMob(EntityType<?> entityType) {
+        loadConfigIfNeeded();
+        if (!infectionHiveMindEnabled || entityType == null) {
+            return false;
+        }
+
+        ResourceLocation key;
+        try {
+            key = BuiltInRegistries.ENTITY_TYPE.getKey(entityType);
+        } catch (Throwable t) {
+            return false;
+        }
+        if (key == null) {
+            return false;
+        }
+
+        String id = key.toString().toLowerCase(Locale.ROOT);
+        if (!infectionHiveMindMobIds.isEmpty() && infectionHiveMindMobIds.contains(id)) {
+            return true;
+        }
+
+        String ns = key.getNamespace();
+        if (ns == null) {
+            return false;
+        }
+        ns = ns.toLowerCase(Locale.ROOT);
+        return !infectionHiveMindNamespaces.isEmpty() && infectionHiveMindNamespaces.contains(ns);
+    }
+
+    public static void tryInfectionHiveMindBroadcast(Mob caller) {
+        if (caller == null || !caller.isAlive()) {
+            return;
+        }
+        if (caller.level().isClientSide()) {
+            return;
+        }
+
+        loadConfigIfNeeded();
+        if (!infectionHiveMindEnabled) {
+            return;
+        }
+        if (!isInfectionHiveMindMob(caller.getType())) {
+            return;
+        }
+
+        LivingEntity target = caller.getTarget();
+        if (target == null || !target.isAlive()) {
+            return;
+        }
+
+        int cooldown = Math.max(1, infectionHiveMindCooldownTicks);
+            if (!(caller instanceof PersistentDataHolder pdh)) {
+                return;
+            }
+            CompoundTag persistentData = pdh.adaptivemobai$getPersistentData();
+            int nextAllowedTick = persistentData.getInt(INFECTION_HIVE_NEXT_BROADCAST_TICK_TAG);
+        if (caller.tickCount < nextAllowedTick) {
+            return;
+        }
+            persistentData.putInt(INFECTION_HIVE_NEXT_BROADCAST_TICK_TAG, caller.tickCount + cooldown);
+
+        int range = Math.max(1, infectionHiveMindRangeBlocks);
+        int maxAllies = Math.max(0, infectionHiveMindMaxAllies);
+        if (maxAllies <= 0) {
+            return;
+        }
+
+        AABB box = caller.getBoundingBox().inflate(range);
+        List<Mob> nearby = caller.level().getEntitiesOfClass(Mob.class, box, m -> {
+            if (m == null || m == caller || !m.isAlive()) {
+                return false;
+            }
+            return isInfectionHiveMindMob(m.getType());
+        });
+
+        int applied = 0;
+        for (Mob ally : nearby) {
+            if (applied >= maxAllies) {
+                break;
+            }
+            if (infectionHiveMindOnlyIfAllyHasNoTarget && ally.getTarget() != null && ally.getTarget().isAlive()) {
+                continue;
+            }
+            try {
+                ally.setTarget(target);
+                applied++;
+            } catch (Throwable ignored) {
+                // Never break gameplay for a compatibility feature.
             }
         }
     }
@@ -732,6 +896,19 @@ public class GANCityMod {
         value = stripQuotes(value).trim();
         try {
             return Float.parseFloat(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private static int parseInt(java.util.Map<String, String> kv, String key, int defaultValue) {
+        String value = kv.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        value = stripQuotes(value).trim();
+        try {
+            return Integer.parseInt(value);
         } catch (NumberFormatException e) {
             return defaultValue;
         }
