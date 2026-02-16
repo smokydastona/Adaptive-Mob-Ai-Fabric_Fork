@@ -98,7 +98,7 @@
 
 		# Which mobs count as "infected" (two options):
 		# 1) Namespaces (mod ids) - most convenient
-		infectionHiveMindMobNamespaces = ["srparasites", "sculkhorde", "sculk_horde", "spore", "haloflood"]
+		infectionHiveMindMobNamespaces = ["srparasites", "sculkhorde", "sculk_horde", "spore", "fungal_infection", "fungalinfectionspore", "dawnoftheflood", "dawn_of_the_flood", "dotf", "haloflood"]
 		# 2) Explicit entity ids (resource locations)
 		infectionHiveMindMobIds = []
 

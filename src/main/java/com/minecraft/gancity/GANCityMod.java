@@ -97,6 +97,11 @@ public class GANCityMod {
         "sculkhorde",
         "sculk_horde",
         "spore",
+        "fungal_infection",
+        "fungalinfectionspore",
+        "dawnoftheflood",
+        "dawn_of_the_flood",
+        "dotf",
         "haloflood"
     );
     private static volatile java.util.Set<String> infectionHiveMindMobIds = java.util.Set.of();
@@ -436,8 +441,14 @@ public class GANCityMod {
                 infectionHiveMindMaxAllies = parseInt(kv, "infectionHiveMindMaxAllies", 6);
                 infectionHiveMindOnlyIfAllyHasNoTarget = parseBoolean(kv, "infectionHiveMindOnlyIfAllyHasNoTarget", true);
 
-                infectionHiveMindNamespaces = normalizeLowercaseSet(parseStringList(kv, "infectionHiveMindMobNamespaces"));
-                infectionHiveMindMobIds = normalizeLowercaseSet(parseStringList(kv, "infectionHiveMindMobIds"));
+                // Preserve built-in defaults for older configs that don't have these keys yet.
+                // If the key is present (even as an empty list), respect it.
+                if (kv.containsKey("infectionHiveMindMobNamespaces")) {
+                    infectionHiveMindNamespaces = normalizeLowercaseSet(parseStringList(kv, "infectionHiveMindMobNamespaces"));
+                }
+                if (kv.containsKey("infectionHiveMindMobIds")) {
+                    infectionHiveMindMobIds = normalizeLowercaseSet(parseStringList(kv, "infectionHiveMindMobIds"));
+                }
 
                 configLoaded = true;
             } catch (Exception e) {
