@@ -5,6 +5,10 @@
 - Per-mob AI overrides: new config UI page to force specific entities (vanilla or modded) to keep default/vanilla AI (skips goal injection)
 	- Persisted in `config/adaptivemobai-per-mob-ai.json`
 
+- IDE/JDT warning cleanup across Fabric sources
+	- Removed ignored `null`/`unused` suppression categories from Fabric entrypoints, AI classes, config screens, commands, MCA integration, mixins, and related UI helpers
+	- Cleaned up `VisualPerception` to remove dead `preferredWeapon` state and use explicit null-safe item checks/counter updates
+
 ## 1.0.11
 
 - Parity (Forge): Allow hostile mobs to spawn with and use bows/crossbows/tridents (universal weapon loadouts).
