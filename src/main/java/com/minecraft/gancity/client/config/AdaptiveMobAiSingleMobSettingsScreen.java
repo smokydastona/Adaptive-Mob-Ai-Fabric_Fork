@@ -46,28 +46,33 @@ public final class AdaptiveMobAiSingleMobSettingsScreen extends Screen {
         int y = this.height / 4;
         int w = Math.min(320, this.width - 40);
 
-        addRenderableWidget(Button.builder(Component.literal("Loadouts"), b ->
+        Button loadouts = addRenderableWidget(Button.builder(Component.literal("Loadouts"), b ->
             Minecraft.getInstance().setScreen(new AdaptiveMobAiLoadoutConfigScreen(this))
         ).bounds(centerX - w / 2, y, w, 20).build());
+        AdaptiveMobAiUiText.setTooltip(loadouts, "config.adaptivemobai.tooltip.single.loadouts");
 
         toggleEnhanced = addRenderableWidget(Button.builder(Component.literal("Enhanced AI: ?"), b -> {
             boolean currentlyEnabled = PerMobAiDefaultsStore.isAiEnabledFor(entityTypeId);
             PerMobAiDefaultsStore.setOverride(entityTypeId, !currentlyEnabled);
             refreshButtons();
         }).bounds(centerX - w / 2, y + 24, w, 20).build());
+        AdaptiveMobAiUiText.setTooltip(toggleEnhanced, "config.adaptivemobai.tooltip.single.enhanced_ai");
 
         setProfile = addRenderableWidget(Button.builder(Component.literal("Tactic Profile: ?"), b -> openProfilePicker())
             .bounds(centerX - w / 2, y + 48, w, 20)
             .build());
+        AdaptiveMobAiUiText.setTooltip(setProfile, "config.adaptivemobai.tooltip.single.tactic_profile");
 
         clearProfile = addRenderableWidget(Button.builder(Component.literal("Clear Profile Override"), b -> {
             ModdedMobTacticMappingStore.setOverride(entityTypeId, null);
             refreshButtons();
         }).bounds(centerX - w / 2, y + 72, w, 20).build());
+        AdaptiveMobAiUiText.setTooltip(clearProfile, "config.adaptivemobai.tooltip.single.clear_profile");
 
-        addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose())
+        Button back = addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose())
             .bounds(centerX - w / 2, y + 108, w, 20)
             .build());
+        AdaptiveMobAiUiText.setTooltip(back, "config.adaptivemobai.tooltip.common.back");
 
         refreshButtons();
     }
@@ -78,6 +83,7 @@ public final class AdaptiveMobAiSingleMobSettingsScreen extends Screen {
 
         String currentOverride = ModdedMobTacticMappingStore.getOverride(entityTypeId).orElse(null);
         String computed = computeEffectiveProfile(entityTypeId, currentOverride);
+        clearProfile.active = currentOverride != null && !currentOverride.isBlank();
 
         String label;
         if (currentOverride != null && !currentOverride.isBlank()) {

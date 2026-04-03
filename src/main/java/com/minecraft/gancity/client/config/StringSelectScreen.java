@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Simple searchable selector screen for strings (used as a "dropdown" picker).
@@ -19,6 +20,7 @@ import java.util.function.Consumer;
 public final class StringSelectScreen extends Screen {
     private final Screen parent;
     private final List<String> allOptions;
+    private final Function<String, Component> labelProvider;
     private final Consumer<String> onSelected;
 
     private EditBox search;
@@ -27,10 +29,15 @@ public final class StringSelectScreen extends Screen {
     private String currentSelection;
 
     public StringSelectScreen(Screen parent, Component title, List<String> options, String currentSelection, Consumer<String> onSelected) {
+        this(parent, title, options, currentSelection, option -> Component.literal(option), onSelected);
+    }
+
+    public StringSelectScreen(Screen parent, Component title, List<String> options, String currentSelection, Function<String, Component> labelProvider, Consumer<String> onSelected) {
         super(title);
         this.parent = parent;
         this.allOptions = options == null ? List.of() : new ArrayList<>(options);
         this.currentSelection = currentSelection;
+        this.labelProvider = labelProvider == null ? option -> Component.literal(option) : labelProvider;
         this.onSelected = onSelected;
     }
 
@@ -110,13 +117,13 @@ public final class StringSelectScreen extends Screen {
 
             @Override
             public Component getNarration() {
-                return Component.literal(option);
+                return labelProvider.apply(option);
             }
 
             @Override
             public void render(net.minecraft.client.gui.GuiGraphics gfx, int index, int y, int x, int rowWidth, int rowHeight, int mouseX, int mouseY, boolean hovered, float partialTick) {
                 int color = Objects.equals(currentSelection, option) ? 0xFFFFCC00 : 0xFFE0E0E0;
-                gfx.drawString(font, option, x + 4, y + 4, color, false);
+                gfx.drawString(font, labelProvider.apply(option), x + 4, y + 4, color, false);
             }
 
             @Override

@@ -56,9 +56,10 @@ public final class AdaptiveMobAiMobAiSettingsScreen extends Screen {
         mobList.setLeftPos(listX);
         addRenderableWidget(mobList);
 
-        addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose())
+        Button back = addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose())
             .bounds(listX, bottomButtonsY, 120, 20)
             .build());
+        AdaptiveMobAiUiText.setTooltip(back, "config.adaptivemobai.tooltip.common.back");
 
         refreshList();
     }

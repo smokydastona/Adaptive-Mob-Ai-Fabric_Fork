@@ -56,6 +56,7 @@ public final class AdaptiveMobAiAdvancedMobAiSettingsScreen extends Screen {
             boolean now = ModdedMobTacticMappingStore.get().autoAssignEnabled;
             toggleAutoAssign.setMessage(Component.literal("Auto-Assign Modded Profiles: " + (now ? "ON" : "OFF")));
         }).bounds(listX, y, listWidth, 20).build());
+        AdaptiveMobAiUiText.setTooltip(toggleAutoAssign, "config.adaptivemobai.tooltip.advanced.auto_assign");
 
         y += 26;
 
@@ -73,9 +74,10 @@ public final class AdaptiveMobAiAdvancedMobAiSettingsScreen extends Screen {
         mobList.setLeftPos(listX);
         addRenderableWidget(mobList);
 
-        addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose())
+        Button back = addRenderableWidget(Button.builder(Component.literal("Back"), b -> onClose())
             .bounds(listX, bottomButtonsY, 120, 20)
             .build());
+        AdaptiveMobAiUiText.setTooltip(back, "config.adaptivemobai.tooltip.common.back");
 
         refreshList();
     }
