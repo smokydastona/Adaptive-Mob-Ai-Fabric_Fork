@@ -78,6 +78,7 @@ public class GANCityMod {
 
     // Global (server-wide) mob weapon loadouts from config
     private static volatile Map<String, List<String>> globalMobWeaponLoadouts = Map.of();
+    private static volatile boolean globalLoadoutsDisabled = false;
     private static volatile String defaultBowArrowItemId = "minecraft:arrow";
     private static volatile Map<String, String> bowArrowOverrides = Map.of();
 
@@ -428,6 +429,7 @@ public class GANCityMod {
                 syncTiersWithFederation = parseBoolean(kv, "syncTiersWithFederation", true);
 
                 // Loadouts (list-of-strings)
+                globalLoadoutsDisabled = parseBoolean(kv, "disableLoadoutsGlobally", false);
                 globalMobWeaponLoadouts = parseMobWeaponLoadouts(parseStringList(kv, "mobWeaponLoadouts"), 5);
                 defaultBowArrowItemId = normalizeItemId(parseString(kv, "defaultBowArrowItem", "minecraft:arrow"), "minecraft:arrow", true);
                 bowArrowOverrides = parseKeyValueMap(parseStringList(kv, "mobBowArrowOverrides"));
@@ -598,6 +600,9 @@ public class GANCityMod {
         if (mobTypeId == null || mobTypeId.isBlank()) {
             return PlayerMobLoadoutStore.WeaponDecision.noOverride();
         }
+        if (globalLoadoutsDisabled) {
+            return PlayerMobLoadoutStore.WeaponDecision.preserve();
+        }
 
         List<String> options = globalMobWeaponLoadouts.get(mobTypeId);
         if (options == null || options.isEmpty()) {
@@ -652,6 +657,9 @@ public class GANCityMod {
 
     public static ItemStack getConfiguredArrowStackForMob(String mobTypeId) {
         loadConfigIfNeeded();
+        if (globalLoadoutsDisabled) {
+            return ItemStack.EMPTY;
+        }
 
         String arrowId = null;
         if (mobTypeId != null && !mobTypeId.isBlank()) {
