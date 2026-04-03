@@ -16,7 +16,7 @@ import java.util.EnumSet;
  * Uses machine learning to select attack patterns
  * Works via EntityJoinLevelEvent instead of mixin injection
  */
-@SuppressWarnings({"null", "unused"})
+@SuppressWarnings("unused")
 public class EnhancedMeleeGoal extends Goal {
     private static final Logger LOGGER = LogUtils.getLogger();
     
