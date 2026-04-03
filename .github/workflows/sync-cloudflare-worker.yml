@@ -20,12 +20,12 @@ jobs:
 
     steps:
       - name: Checkout fork
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Checkout upstream repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: smokydastona/Adaptive-Minecraft-Mob-Ai
           ref: main
