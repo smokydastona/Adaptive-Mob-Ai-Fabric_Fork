@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
  * This provides fine tuning: users can override the auto-selected profile
  * for any entity type id (e.g. "alexsmobs:grizzly_bear" -> "polar_bear").
  */
-@SuppressWarnings({"null", "ConstantConditions"})
+@SuppressWarnings("ConstantConditions")
 public final class AdaptiveMobAiModdedMobTacticsConfigScreen extends Screen {
     private final Screen parent;
 

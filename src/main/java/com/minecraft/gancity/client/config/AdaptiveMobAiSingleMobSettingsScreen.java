@@ -25,7 +25,7 @@ import java.util.Locale;
  * - Choose tactic profile (override) or clear override to use default/auto
  * - Jump into the existing Loadouts screen
  */
-@SuppressWarnings({"null", "ConstantConditions"})
+@SuppressWarnings("ConstantConditions")
 public final class AdaptiveMobAiSingleMobSettingsScreen extends Screen {
     private final Screen parent;
     private final String entityTypeId;

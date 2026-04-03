@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  *
  * When disabled, the mob keeps its default/vanilla AI (this mod will not inject goals).
  */
-@SuppressWarnings({"null", "ConstantConditions"})
+@SuppressWarnings("ConstantConditions")
 public final class AdaptiveMobAiPerMobAiConfigScreen extends Screen {
     private final Screen parent;
 

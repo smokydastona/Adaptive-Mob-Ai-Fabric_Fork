@@ -18,7 +18,6 @@ import java.util.UUID;
  * Handles chat-based conversations with MCA villagers
  * Players can type messages and nearby villagers respond
  */
-@SuppressWarnings("null")
 public class VillagerChatHandler {
     private static final Logger LOGGER = LogUtils.getLogger();
     

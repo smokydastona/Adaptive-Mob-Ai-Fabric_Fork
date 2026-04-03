@@ -28,7 +28,7 @@ import java.util.EnumSet;
  * - Ice and Fire: Skips dragons and mythical creatures (complex custom AI)
  */
 @Mixin(Mob.class)
-@SuppressWarnings({"null", "unused"})
+@SuppressWarnings("unused")
 public abstract class MobAIEnhancementMixin {
 
     private static final String GENERIC_RANGED_GOAL_TAG = "AdaptiveMobAI_GenericRangedGoal";

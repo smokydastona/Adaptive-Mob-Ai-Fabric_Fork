@@ -19,7 +19,6 @@ import java.util.*;
  * - Counter-attack windows
  * - Jump-crit timing
  */
-@SuppressWarnings("null")
 public class ReflexModule {
     private static final Logger LOGGER = LogUtils.getLogger();
     

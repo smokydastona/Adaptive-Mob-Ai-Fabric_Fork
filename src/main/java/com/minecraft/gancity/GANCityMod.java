@@ -34,7 +34,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 
-@SuppressWarnings({"null"})
 public class GANCityMod {
     public static final String MODID = "adaptivemobai";
     public static final Logger LOGGER = LogUtils.getLogger();  // Changed to public for mixin access

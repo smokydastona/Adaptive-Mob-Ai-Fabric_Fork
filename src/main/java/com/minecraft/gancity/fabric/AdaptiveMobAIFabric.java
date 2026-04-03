@@ -18,7 +18,6 @@ import java.lang.reflect.Proxy;
 /**
  * Fabric entrypoint.
  */
-@SuppressWarnings({"unused"})
 public final class AdaptiveMobAIFabric implements ModInitializer {
 
     @Override

@@ -5,7 +5,6 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 
-@SuppressWarnings("null")
 final class AdaptiveMobAiUiText {
     private AdaptiveMobAiUiText() {
     }

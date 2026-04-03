@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  * Vanilla-only "Mob AI Settings" screen.
  * Lists all minecraft: entity types that are mobs (non-MISC) and opens per-mob settings.
  */
-@SuppressWarnings({"null", "ConstantConditions"})
+@SuppressWarnings("ConstantConditions")
 public final class AdaptiveMobAiMobAiSettingsScreen extends Screen {
     private final Screen parent;
 

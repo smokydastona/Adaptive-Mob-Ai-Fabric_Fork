@@ -12,7 +12,6 @@ import java.util.*;
  * 
  * This is what federation should aggregate - tactics, not button presses.
  */
-@SuppressWarnings("null")
 public class TacticalActionSpace {
     
     /**

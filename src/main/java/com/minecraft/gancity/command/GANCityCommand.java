@@ -22,7 +22,6 @@ import java.util.UUID;
 /**
  * Commands for testing and managing AI features
  */
-@SuppressWarnings("null")
 public class GANCityCommand {
 
     private static final int MAX_LISTED_MOBS = 15;

@@ -31,7 +31,7 @@ import java.util.*;
  * Combines Double DQN, Prioritized Replay, Multi-Agent, Curriculum Learning, 
  * Visual Perception, and Genetic Evolution for adaptive gameplay
  */
-@SuppressWarnings({"null", "unused"})
+@SuppressWarnings("unused")
 public class MobBehaviorAI {
     private static final Logger LOGGER = LogUtils.getLogger();
     

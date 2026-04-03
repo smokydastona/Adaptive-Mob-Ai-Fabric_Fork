@@ -39,7 +39,7 @@ import java.util.Random;
  * - PMMO: Reduces stat modifiers to avoid conflicts with PMMO scaling
  * - Livestock/Pet Overhaul: Skips animals (not hostile mobs)
  */
-@SuppressWarnings({"null", "unused"})
+@SuppressWarnings("unused")
 public class MobTierAssignmentHandler {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Random RANDOM = new Random();

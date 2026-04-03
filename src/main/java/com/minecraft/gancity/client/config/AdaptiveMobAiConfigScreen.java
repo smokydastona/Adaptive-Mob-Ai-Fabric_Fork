@@ -11,7 +11,6 @@ import net.minecraft.network.chat.Component;
  * Fabric exposes a single config entry-point via ModMenu; this screen is a hub
  * to reach individual config pages.
  */
-@SuppressWarnings("null")
 public final class AdaptiveMobAiConfigScreen extends Screen {
     private final Screen parent;
     private Button disableLoadoutsToggle;
