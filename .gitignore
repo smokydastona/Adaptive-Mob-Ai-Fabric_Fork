@@ -148,3 +148,6 @@ bin/
 # Libs folder - optional JAR dependencies
 libs/*.jar
 !libs/README.md
+
+# Generated locale validation report
+analysis/lang_fail_report.md
