@@ -44,11 +44,12 @@ That's it. Mobs adapt to player tactics and optionally share knowledge globally.
 
 ### 🔧 Server Admin Tools
 ```
-/mcaai info              # System status and active features
-/mcaai stats <mob>       # Learning progress per mob type
-/mcaai federation        # Global sync status and contribution stats
-/mcaai debug qvalues     # Q-value visualization (dev)
-/mcaai debug training    # Training metrics (dev)
+/amai info              # System status and active features
+/amai stats             # Learning progress and active AI statistics
+/amai status            # Federated learning / Cloudflare sync status
+/amai compat            # Compatibility report for optional mods
+/amai test dialogue <type>
+/amai loadout ...       # Per-player mob loadout controls
 ```
 
 ### 🔌 Mod Compatibility
@@ -182,8 +183,7 @@ See [.github/copilot-instructions.md](.github/copilot-instructions.md) for archi
 ## 🌍 Federation Status
 
 **Live API**: https://mca-ai-tactics-api.mc-ai-datcol.workers.dev/status  
-**GitHub Logs**: https://github.com/smokydastona/adaptive-ai-federation-logs  
-**In-game**: `/mcaai federation`
+**In-game**: `/amai status`
 
 ---
 

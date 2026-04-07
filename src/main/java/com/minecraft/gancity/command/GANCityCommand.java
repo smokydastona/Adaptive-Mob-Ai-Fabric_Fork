@@ -309,7 +309,7 @@ public class GANCityCommand {
         
         source.sendSuccess(() -> Component.literal(""), false);
         source.sendSuccess(() -> Component.literal("§eRecommended Mods for Enhanced AI:§r"), false);
-        source.sendSuccess(() -> Component.literal("  • Curios API - Better equipment detection"), false);
+        source.sendSuccess(() -> Component.literal("  • Curios API - Basic curio-based equipment heuristics"), false);
         source.sendSuccess(() -> Component.literal("  • FTB Teams - Multiplayer team AI"), false);
         source.sendSuccess(() -> Component.literal("  • Epic Fight - Advanced combat move recognition"), false);
         source.sendSuccess(() -> Component.literal("  • Alex's Mobs - Extended mob behavior patterns"), false);

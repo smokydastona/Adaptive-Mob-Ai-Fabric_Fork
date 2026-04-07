@@ -215,10 +215,10 @@ public class GANCityMod {
     }
     
     public static void onServerStopping() {
-        LOGGER.info("MCA AI Enhanced - Server stopping, saving ML models...");
+        LOGGER.info("MCA AI Enhanced - Server stopping, flushing AI services...");
         
         if (mobBehaviorAI != null) {
-            mobBehaviorAI.saveModel();
+            mobBehaviorAI.shutdown();
         }
     }
     
